@@ -1,0 +1,33 @@
+CLI SCANNER
+
+> sudo apt update
+
+> sudo apt upgrade
+
+> sudo docker pull schollz/find3-cli-scanner  // fetch the latest image (this command is if not using a Raspberry Pi).
+
+> sudo docker run --net="host" --privileged --name scanner -d -i -t schollz/find3-cli-scanner
+
+> sudo docker start scanner // start the canner 
+
+> sudo docker ps  // check
+
+> iwconfig  // check wlan interface and check if monitor
+
+(
+ 1. sudo ifconfig wlx00c0ca982022 down
+
+ 2. sudo iwconfig wlx00c0ca982022 mode monitor
+
+ 3. sudo ifconfig wlx00c0ca982022 up 
+)
+
+sudo airmon-ng
+
+sudo airodump-ng wlx00c0ca982022
+
+
+
+> sudo docker exec scanner sh -c "find3-cli-scanner -device raaisetest -family raaise -location securityoperations -wifi -i wlx00c0ca982022 -server http://192.168.15.7:8005/ -forever -passive"  // now using the scanner
+
+>  http POST http://192.168.15.7:8005/api/v1/settings/passive family=raaise device=wifi-18:69:D4:55:0E:53 location="securityoperations"

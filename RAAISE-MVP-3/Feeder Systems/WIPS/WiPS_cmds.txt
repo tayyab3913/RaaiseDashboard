@@ -1,0 +1,59 @@
+
+1. >curl http://192.168.15.7:8005/ping  // This is PINGing the server, which is useful for testing if the server is up
+
+
+2. >curl http://192.168.15.7:8005/api/v1/database/raaise // This command will return SQL data for the database which can be used to backup the current state of the entire database. Here, 'raaise' refers to FAMILY name used while setting up the server
+ 
+
+3. >curl http://192.168.15.7:8005/api/v1/calibrate/raaise // This command is used for calibrating the ML models and will cause the server to update all the ML algorithms with the latest training data. This is advantagous to make sure that we get the most up-to-date ML model calibration.
+
+
+4. >curl http://192.168.15.7:8005/api/v1/efficacy/raaise // This command is used to get performance analysis of the caliberated model (using the testing dataset of 30% of the entire dataset available). It returns accuracy breakdown which is the location-specific probability of detection with respect to the testing dataset. It also returns a confusion metrics of the test data of each of the ML models deployed in the training and testing. In this outcome, informedness is used to determine the probability for the correct identification of a specific location or area. 
+
+
+5. >curl http://192.168.15.7:8005/api/v1/devices/raaise // This command is used to get a list of all mobile devices used for collecting dataset
+probabilities
+
+
+6. >curl http://192.168.15.7:8005/api/v1/location/raaise/raaisetest // This command is used to get the last known location for a device/user. It provides an analysis in terms of the probability of each guess for the location along with a breakdown of the  related to each ML algorithm
+
+
+
+7. >curl http://192.168.15.7:8005/api/v1/locations/raaise  // This command is the same as previous (#6), except it gets an array of the latest location for each device (e.g., raaisetest) in the family (e.g., raaise).
+
+
+8. >curl http://192.168.15.7:8005/api/v1/by_location/raaise  // This command returns a list of locations which is a map containing the name of the location (”location”), and the total number of devices seen and a list of devices (”devices”).
+
+
+9. >curl http://192.168.15.7:8005/api/v1/location_basic/raaise/raaisetest  // This command returns the latest location name and probability for a specific user or device (e.g., raaisetest) in the family (e.g., raaise). It also shows the time that how long ago the user or device was last seen at that location, in seconds (seen).
+
+
+mqtt communication
+
+10. First test the ping between the publisher and subscriber
+
+11. Test the mqtt communication
+From publisher side:
+  mosquitto_pub -h 192.168.1.106 -t testTopic -m "Hi" -u mare -P 8f3o1 -p 1884  // Topic can be -t testTopic, -t 'Family_Name/location/Device_Name' -t 'Family_Name/location/MAC_Address'
+
+From subscriber side (if CLI) also define flow/nodes on node-red if visyalization is required
+  mosquitto_sub -d -u mare -P 8f3o1 -t 'mare/location/maremob' -p 1884  // -t is the topic defined above. Must be same on both the publisher and subscriber
+
+
+12. MQTT between WiPS client and mqtt server at the remote RasPi
+
+From publisher side: connect the mobile with WiPS/Find3server to send detected location
+From subscriber side:
+ mosquitto_sub -d -h 192.168.1.104 -u mare -P 98ld3 -t 'mare/location/Mob_MAC_Address' -p 1884 // -h 192.168.1.104 is Ip address of the find3server and CLI scanner of the WiPS
+
+ 
+ 
+
+ 
+
+
+ 
+
+
+
+ 

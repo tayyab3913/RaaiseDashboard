@@ -1,0 +1,174 @@
+openapi: 3.0.0
+info:
+  title: Raaise Dashboard API
+  version: 1.0.0
+  description: API for managing sensors, users, messages, and active areas in the system.
+servers:
+  - url: 'http://localhost:3000/api'
+paths:
+  /sensors:
+    get:
+      summary: Fetch sensor data
+      description: Fetches the list of sensors.
+      responses:
+        '200':
+          description: A list of sensors.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sensors:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        SENSORID:
+                          type: string
+                          example: CC01
+                          description: Unique identifier of the sensor.
+                        TIMESTAMP:
+                          type: string
+                          format: date-time
+                          example: '2024-09-19 10:54:00'
+                          description: Timestamp of the latest status update.
+                        LOCATION:
+                          type: string
+                          example: P01
+                          description: Location of the sensor.
+                        CONTROL_ACCESS:
+                          type: string
+                          example: NO
+                          description: Whether the sensor controls access.
+                        CAN_AUTHENTICATE:
+                          type: string
+                          example: YES
+                          description: Whether the sensor can authenticate.
+                        ENTRY_AND_EXIT:
+                          type: string
+                          example: YES
+                          description: Whether the sensor manages entry and exit.
+                        SECURITY_LEVEL:
+                          type: string
+                          nullable: true
+                          example: 4
+                          description: The security level of the sensor, which can be null.
+        '500':
+          description: Internal Server Error. Failed to fetch sensor data.
+
+  /users:
+    get:
+      summary: Fetch user data
+      description: Fetches the list of users.
+      responses:
+        '200':
+          description: A list of users.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        USERID:
+                          type: string
+                          example: 1
+                          description: Unique identifier of the user.
+                        TIMESTAMP:
+                          type: string
+                          format: date-time
+                          example: '2024-09-19T10:54:00.000Z'
+                          description: Timestamp of the latest location prediction.
+                        PREDICTED_LOCATION:
+                          type: string
+                          example: A02
+                          description: Predicted location of the user.
+                        IS_REGISTERED:
+                          type: boolean
+                          example: true
+                          description: Indicates whether the user is registered.
+                        ACCESS_LEVEL:
+                          type: string
+                          nullable: true
+                          example: 4
+                          description: Access level of the user, if available.
+        '500':
+          description: Internal Server Error. Failed to fetch user data.
+
+  /messages:
+    get:
+      summary: Fetch active messages
+      description: Fetches a list of active messages.
+      responses:
+        '200':
+          description: A list of active messages.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messages:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                          example: 1
+                          description: Unique identifier of the message.
+                        Message:
+                          type: string
+                          example: "Sensor A detected motion."
+                          description: The content of the message.
+                        Counter:
+                          type: integer
+                          example: 30
+                          description: Time in seconds until the message is considered inactive.
+                        Priority:
+                          type: integer
+                          example: 1
+                          description: The priority of the message, with lower values indicating higher priority.
+                        Timestamp:
+                          type: string
+                          format: date-time
+                          example: '2024-09-19T10:54:00.000Z'
+                          description: Timestamp of when the message was created.
+        '500':
+          description: Internal Server Error. Failed to fetch active messages.
+
+  /areas:
+    get:
+      summary: Fetch active areas
+      description: Fetches the list of active areas with their respective STATUS and TIMESTAMP.
+      responses:
+        '200':
+          description: A list of active areas.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  activeAreas:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        AREAID:
+                          type: string
+                          example: A01
+                          description: Unique identifier of the area.
+                        STATUS:
+                          type: string
+                          example: detect
+                          description: Detection status of the area.
+                          enum: [detect, no-detect]
+                        TIMESTAMP:
+                          type: string
+                          format: date-time
+                          example: '2024-09-09T05:19:37.000Z'
+                          description: Timestamp of the latest status update.
+        '500':
+          description: Internal Server Error. Failed to fetch active areas.
