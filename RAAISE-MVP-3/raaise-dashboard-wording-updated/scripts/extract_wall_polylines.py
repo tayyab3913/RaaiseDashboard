@@ -37,8 +37,8 @@ GAP_TOL_PCT = 2.5      # merge gaps within a band, in % of axis (bridges small b
 BAND_TOL_PCT = 0.7     # group rows/cols into a single wall band
 MIN_FINAL_PCT = 3.0    # drop merged segments shorter than this, in %
 MARGIN_PCT = 0.5       # skip pixels in the outer X% margin (image bleed)
-DEDUP_DIST_PCT = 1.6   # merge parallel bands within this distance (% of secondary)
-DEDUP_OVERLAP = 0.5    # ...and whose intervals overlap >= this fraction
+DEDUP_DIST_PCT = 3.5   # merge parallel bands within this distance (% of secondary)
+DEDUP_OVERLAP = 0.3    # ...and whose intervals overlap >= this fraction
 # ----------------------------------------------------------------------------
 
 
