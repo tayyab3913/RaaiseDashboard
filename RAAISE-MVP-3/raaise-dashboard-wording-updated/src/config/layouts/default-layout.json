@@ -4,16 +4,8 @@
     "height": 10.55
   },
   "camera": {
-    "position": [
-      0,
-      11.5,
-      2
-    ],
-    "target": [
-      0,
-      0,
-      0
-    ],
+    "position": [0, 9.5, 8.5],
+    "target": [0, 0, 0],
     "fov": 50,
     "near": 0.1,
     "far": 100
@@ -24,10 +16,10 @@
   },
   "walls": {
     "enabled": true,
-    "height": 0.32,
+    "height": 0.6,
     "thickness": 0.07,
     "color": "#475569",
-    "opacity": 0.92,
+    "opacity": 0.55,
     "polylines": [
       {
         "id": "h-000",
@@ -651,6 +643,34 @@
             87.12,
             92.88
           ]
+        ]
+      },
+      {
+        "id": "manual-a03a04-top",
+        "points": [
+          [52.0, 70.0],
+          [60.3, 70.0]
+        ]
+      },
+      {
+        "id": "manual-a03a04-divider",
+        "points": [
+          [58.0, 70.0],
+          [58.0, 92.0]
+        ]
+      },
+      {
+        "id": "manual-a03-bottom",
+        "points": [
+          [52.0, 92.0],
+          [58.0, 92.0]
+        ]
+      },
+      {
+        "id": "manual-a04-bottom",
+        "points": [
+          [58.0, 80.0],
+          [60.3, 80.0]
         ]
       }
     ]
