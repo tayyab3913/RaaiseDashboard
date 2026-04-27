@@ -55,9 +55,50 @@ Open **http://localhost:3000**
 
 ---
 
+## Restarting / reseeding during a session
+
+### Reseed the database (map is empty or users frozen)
+
+Data ages out every ~30 minutes. Run this any time to refresh it:
+
+```powershell
+cd "e:\Official Github Repositories\RAAISE-MVP-3\RAAISE-MVP-3"
+Get-Content refresh_data.sql | docker exec -i raaise-mysql mysql -uroot -praaise raaise
+```
+
+No need to restart the dashboard — it polls automatically.
+
+---
+
+### Restart the dashboard (Next.js dev server)
+
+In the terminal where `npm run dev` is running:
+
+1. Press **Ctrl+C** to stop it
+2. Run again:
+
+```powershell
+cd "e:\Official Github Repositories\RAAISE-MVP-3\RAAISE-MVP-3\raaise-dashboard-wording-updated"
+npm run dev
+```
+
+Then open **http://localhost:3000** again.
+
+---
+
+### Restart MySQL (container stopped or machine rebooted)
+
+```powershell
+docker start raaise-mysql
+```
+
+Then re-run the reseed command above before starting the dashboard.
+
+---
+
 ## If the map looks empty
 
-Re-run Step 3. Data ages out every ~30 minutes during a session too.
+Re-run the reseed command above. Data ages out every ~30 minutes during a session too.
 
 ---
 

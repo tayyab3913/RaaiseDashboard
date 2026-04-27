@@ -18,7 +18,6 @@ export function locationToVector3(code: string): [number, number, number] {
   return [worldX, 0, worldZ]
 }
 
-// Spreads multiple avatars at the same location in a circle to avoid overlap
 export function spreadOffset(index: number, total: number, radius: number): [number, number] {
   if (total <= 1) return [0, 0]
   const angle = (index / total) * 2 * Math.PI

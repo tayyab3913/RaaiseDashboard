@@ -17,7 +17,6 @@ type Props = {
 }
 
 export default function Scene({ users }: Props) {
-  // Group users by location so same-location avatars can be spread in a circle
   const locationGroups = useMemo(() => {
     const groups = new Map<string, UserFor3D[]>()
     for (const user of users) {
