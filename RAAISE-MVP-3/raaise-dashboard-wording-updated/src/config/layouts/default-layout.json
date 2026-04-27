@@ -11,9 +11,7 @@
     "far": 100
   },
   "avatar": {
-    "bodyRadius": 0.06,
-    "bodyLength": 0.55,
-    "headRadius": 0.10,
+    "figureHeight": 0.75,
     "spreadRadius": 0.45
   },
   "walls": {

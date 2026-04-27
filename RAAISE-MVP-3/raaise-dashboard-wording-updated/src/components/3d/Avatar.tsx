@@ -6,12 +6,28 @@ import { Html } from '@react-three/drei'
 import { Vector3, Group } from 'three'
 import layout from '@/config/layouts/default-layout.json'
 
-const { bodyRadius: BR, bodyLength: BL, headRadius: HR } = layout.avatar
+// All proportions derived from one configurable value — change figureHeight to rescale everything
+const H = layout.avatar.figureHeight
 
-// Vertical positions derived from avatar dimensions so changing the config reflows everything
-const BODY_Y = BR + BL / 2
-const HEAD_Y = BR + BL + HR
-const LABEL_Y = HEAD_Y + HR + 0.15
+const HEAD_R  = H * 0.125
+const HEAD_Y  = H * 0.875
+
+const TORSO_H = H * 0.34
+const TORSO_W = H * 0.22
+const TORSO_D = H * 0.12
+const TORSO_Y = HEAD_Y - HEAD_R - TORSO_H * 0.5   // top of torso touches bottom of head
+
+const ARM_H   = H * 0.28
+const ARM_R   = H * 0.042
+const ARM_X   = H * 0.155                           // outside torso half-width
+const ARM_Y   = TORSO_Y + TORSO_H * 0.5 - ARM_H * 0.5  // hang from shoulders
+
+const LEG_H   = H * 0.40
+const LEG_R   = H * 0.055
+const LEG_X   = H * 0.075
+const LEG_Y   = LEG_H * 0.5                        // feet sit at y=0
+
+const LABEL_Y = H + 0.12
 
 export type UserFor3D = {
   USERID: string
@@ -22,11 +38,17 @@ export type UserFor3D = {
 }
 
 function resolveColors(status: string, isRegistered: boolean, authorized: boolean) {
-  if (status === 'Offline') return { body: '#4b5563', head: '#6b7280' }
+  if (status === 'Offline') return { primary: '#4b5563', secondary: '#6b7280' }
   const dim = status === 'Inactive'
-  if (!isRegistered)  return dim ? { body: '#b91c1c', head: '#dc2626' } : { body: '#dc2626', head: '#ef4444' }
-  if (!authorized)    return dim ? { body: '#be185d', head: '#db2777' } : { body: '#db2777', head: '#ec4899' }
-  return                     dim ? { body: '#1d4ed8', head: '#2563eb' } : { body: '#2563eb', head: '#3b82f6' }
+  if (!isRegistered) return dim
+    ? { primary: '#991b1b', secondary: '#b91c1c' }
+    : { primary: '#dc2626', secondary: '#ef4444' }
+  if (!authorized) return dim
+    ? { primary: '#9d174d', secondary: '#be185d' }
+    : { primary: '#db2777', secondary: '#ec4899' }
+  return dim
+    ? { primary: '#1e40af', secondary: '#1d4ed8' }
+    : { primary: '#2563eb', secondary: '#3b82f6' }
 }
 
 function resolveLabel(user: UserFor3D) {
@@ -42,39 +64,64 @@ type Props = {
 
 export function AvatarMesh({ user, targetPosition }: Props) {
   const groupRef = useRef<Group>(null)
-  // Start at target so the avatar doesn't fly in from the origin on first mount
-  const posRef = useRef(new Vector3(...targetPosition))
+  const posRef   = useRef(new Vector3(...targetPosition))
   const [hovered, setHovered] = useState(false)
 
   useFrame((_, delta) => {
     if (!groupRef.current) return
-    // Exponential smoothing — frame-rate independent, ~99% complete within 1 second
     const t = 1 - Math.pow(0.001, delta)
     posRef.current.lerp(new Vector3(...targetPosition), t)
     groupRef.current.position.copy(posRef.current)
   })
 
-  const { body, head } = resolveColors(user.status, user.IS_REGISTERED, user.authorized)
+  const { primary, secondary } = resolveColors(user.status, user.IS_REGISTERED, user.authorized)
   const label = resolveLabel(user)
 
   return (
-    <group ref={groupRef} position={posRef.current.toArray() as [number, number, number]}>
-      <mesh position={[0, BODY_Y, 0]}>
-        <capsuleGeometry args={[BR, BL, 4, 8]} />
-        <meshStandardMaterial color={body} />
-      </mesh>
+    <group
+      ref={groupRef}
+      position={posRef.current.toArray() as [number, number, number]}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
+    >
+      {/* Head */}
       <mesh position={[0, HEAD_Y, 0]}>
-        <sphereGeometry args={[HR, 8, 8]} />
-        <meshStandardMaterial color={head} />
+        <sphereGeometry args={[HEAD_R, 10, 10]} />
+        <meshStandardMaterial color={secondary} />
       </mesh>
 
-      <Html
-        position={[0, LABEL_Y, 0]}
-        center
-        zIndexRange={[10, 0]}
-        onPointerEnter={() => setHovered(true)}
-        onPointerLeave={() => setHovered(false)}
-      >
+      {/* Torso */}
+      <mesh position={[0, TORSO_Y, 0]}>
+        <boxGeometry args={[TORSO_W, TORSO_H, TORSO_D]} />
+        <meshStandardMaterial color={primary} />
+      </mesh>
+
+      {/* Left arm */}
+      <mesh position={[-ARM_X, ARM_Y, 0]}>
+        <cylinderGeometry args={[ARM_R, ARM_R * 0.85, ARM_H, 6]} />
+        <meshStandardMaterial color={primary} />
+      </mesh>
+
+      {/* Right arm */}
+      <mesh position={[ARM_X, ARM_Y, 0]}>
+        <cylinderGeometry args={[ARM_R, ARM_R * 0.85, ARM_H, 6]} />
+        <meshStandardMaterial color={primary} />
+      </mesh>
+
+      {/* Left leg */}
+      <mesh position={[-LEG_X, LEG_Y, 0]}>
+        <cylinderGeometry args={[LEG_R, LEG_R * 0.8, LEG_H, 6]} />
+        <meshStandardMaterial color={secondary} />
+      </mesh>
+
+      {/* Right leg */}
+      <mesh position={[LEG_X, LEG_Y, 0]}>
+        <cylinderGeometry args={[LEG_R, LEG_R * 0.8, LEG_H, 6]} />
+        <meshStandardMaterial color={secondary} />
+      </mesh>
+
+      {/* Floating label */}
+      <Html position={[0, LABEL_Y, 0]} center zIndexRange={[10, 0]}>
         <div style={{
           fontSize: 10,
           whiteSpace: 'nowrap',
@@ -87,8 +134,9 @@ export function AvatarMesh({ user, targetPosition }: Props) {
         </div>
       </Html>
 
+      {/* Hover tooltip */}
       {hovered && (
-        <Html position={[0, LABEL_Y + 0.4, 0]} center zIndexRange={[20, 0]}>
+        <Html position={[0, LABEL_Y + 0.35, 0]} center zIndexRange={[20, 0]}>
           <div style={{
             background: 'rgba(255,255,255,0.92)',
             border: '1px solid #d1d5db',
