@@ -1,9 +1,9 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Html } from '@react-three/drei'
-import { Vector3, Group } from 'three'
+import { Vector3, Group, MeshStandardMaterial, DoubleSide } from 'three'
 import layout from '@/config/layouts/default-layout.json'
 
 const H = layout.avatar.figureHeight
@@ -96,16 +96,72 @@ export type UserFor3D = {
   authorized: boolean
 }
 
-function resolveColor(status: string, isRegistered: boolean, authorized: boolean) {
-  // Vibrant palette matching the legend (red / pink / blue / gray).
-  // Inactive states keep the same hue but a touch darker so the figure still
-  // reads as the same role at a glance.
-  if (status === 'Offline') return '#4b5563'
-  const dim = status === 'Inactive'
-  if (!isRegistered) return dim ? '#cc1414' : '#ff1a1a'
-  if (!authorized) return dim ? '#cc1573' : '#ff1f8a'
-  return dim ? '#1745cc' : '#1f6dff'
+type AvatarPalette = {
+  color: string         // base diffuse color
+  emissive: string      // glow color (usually same hue, deeper)
+  intensity: number     // emissiveIntensity — 0 = no glow, 1 = strong glow
 }
+
+// ---------------------------------------------------------------------------
+// ACTIVE palette — sampled from the reference render. Professional, muted,
+// information conveyed primarily through the floor-ring indicator below.
+// ---------------------------------------------------------------------------
+function resolveColor(status: string, isRegistered: boolean, authorized: boolean): AvatarPalette {
+  if (status === 'Offline') {
+    return { color: '#475569', emissive: '#000000', intensity: 0 }
+  }
+  const dim = status === 'Inactive'
+  if (isRegistered && authorized) {
+    return dim
+      ? { color: '#3f8aa0', emissive: '#000000', intensity: 0 }
+      : { color: '#58a8c0', emissive: '#000000', intensity: 0 }
+  }
+  return dim
+    ? { color: '#5e5e5e', emissive: '#000000', intensity: 0 }
+    : { color: '#7e7e7e', emissive: '#000000', intensity: 0 }
+}
+
+// ---------------------------------------------------------------------------
+// ALTERNATE palette — vivid red/blue with internal emissive glow. Swap into
+// `resolveColor` above (rename and comment out the other) to use this look.
+// ---------------------------------------------------------------------------
+// function resolveColor(status: string, isRegistered: boolean, authorized: boolean): AvatarPalette {
+//   if (status === 'Offline') {
+//     return { color: '#475569', emissive: '#000000', intensity: 0 }
+//   }
+//   const dim = status === 'Inactive'
+//   if (isRegistered && authorized) {
+//     return dim
+//       ? { color: '#1d4ed8', emissive: '#1e40af', intensity: 0.30 }
+//       : { color: '#3b82f6', emissive: '#1d6dff', intensity: 0.55 }
+//   }
+//   return dim
+//     ? { color: '#b91c1c', emissive: '#7f1d1d', intensity: 0.30 }
+//     : { color: '#ef4444', emissive: '#dc2626', intensity: 0.55 }
+// }
+
+// Floor-ring indicator under each avatar. Red = threat (intruder /
+// unauthorized), Blue = trusted (authorized user). Returns `null` for offline
+// avatars (they don't get a ring).
+type RingPalette = { color: string; emissive: string; intensity: number }
+
+function resolveRing(
+  status: string,
+  isRegistered: boolean,
+  authorized: boolean
+): RingPalette | null {
+  if (status === 'Offline') return null
+  if (isRegistered && authorized) {
+    return { color: '#3b82f6', emissive: '#1d6dff', intensity: 0.6 }
+  }
+  return { color: '#ef4444', emissive: '#dc2626', intensity: 0.6 }
+}
+
+// Ring geometry, in world units. Sits on the floor centered under the
+// avatar's pelvis so it reads as a target/halo without overlapping feet.
+const RING_INNER = H * 0.22
+const RING_OUTER = H * 0.28
+const RING_Y = 0.012  // just above floor — clears the white base ground
 
 function resolveLabel(user: UserFor3D) {
   if (!user.IS_REGISTERED) return 'Intruder'
@@ -130,8 +186,49 @@ export function AvatarMesh({ user, targetPosition }: Props) {
     groupRef.current.position.copy(posRef.current)
   })
 
-  const color = resolveColor(user.status, user.IS_REGISTERED, user.authorized)
+  const palette = resolveColor(user.status, user.IS_REGISTERED, user.authorized)
+  const ring = resolveRing(user.status, user.IS_REGISTERED, user.authorized)
   const label = resolveLabel(user)
+
+  // One shared material per avatar instead of per mesh — keeps the GPU's
+  // material/uniform cache warm across all 21 body parts and lets us tweak
+  // emissive intensity (status changes) cheaply.
+  const material = useMemo(
+    () =>
+      new MeshStandardMaterial({
+        color: palette.color,
+        emissive: palette.emissive,
+        emissiveIntensity: palette.intensity,
+        metalness: 0.4,
+        roughness: 0.3,
+      }),
+    [palette.color, palette.emissive, palette.intensity]
+  )
+
+  useEffect(() => () => material.dispose(), [material])
+
+  // Floor-ring material — separate from the body material because it lives
+  // on the floor (not on the avatar mesh) and uses a different look (always
+  // glowing, slightly transparent, double-sided so it stays visible from
+  // any camera tilt).
+  const ringMaterial = useMemo(() => {
+    if (!ring) return null
+    return new MeshStandardMaterial({
+      color: ring.color,
+      emissive: ring.emissive,
+      emissiveIntensity: ring.intensity,
+      metalness: 0.1,
+      roughness: 0.4,
+      transparent: true,
+      opacity: 0.85,
+      side: DoubleSide,
+    })
+  }, [ring])
+
+  useEffect(() => {
+    if (!ringMaterial) return
+    return () => ringMaterial.dispose()
+  }, [ringMaterial])
 
   return (
     <group
@@ -140,22 +237,33 @@ export function AvatarMesh({ user, targetPosition }: Props) {
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
     >
+      {/* Floor-ring role indicator — red = threat, blue = trusted user.
+          Lies flat on the floor centered under the avatar; lifted slightly
+          off the ground (RING_Y) to avoid z-fighting with the base plane. */}
+      {ringMaterial && (
+        <mesh
+          position={[0, RING_Y, 0]}
+          rotation={[-Math.PI / 2, 0, 0]}
+          material={ringMaterial}
+          renderOrder={1}
+        >
+          <ringGeometry args={[RING_INNER, RING_OUTER, 48]} />
+        </mesh>
+      )}
+
       {/* Head */}
-      <mesh position={[0, HEAD_Y, 0]} castShadow>
+      <mesh position={[0, HEAD_Y, 0]} material={material} castShadow>
         <sphereGeometry args={[HEAD_R, 18, 14]} />
-        <meshStandardMaterial color={color} roughness={0.6} />
       </mesh>
 
       {/* Neck */}
-      <mesh position={[0, NECK_Y, 0]}>
+      <mesh position={[0, NECK_Y, 0]} material={material}>
         <cylinderGeometry args={[NECK_R, NECK_R * 1.1, NECK_H, 12]} />
-        <meshStandardMaterial color={color} roughness={0.6} />
       </mesh>
 
       {/* Torso */}
-      <mesh position={[0, TORSO_Y, 0]}>
+      <mesh position={[0, TORSO_Y, 0]} material={material}>
         <boxGeometry args={[TORSO_W, TORSO_H, TORSO_D]} />
-        <meshStandardMaterial color={color} roughness={0.6} />
       </mesh>
 
       {/* Right arm: tilted slightly outward (around +X side). Wrapping all
@@ -165,25 +273,20 @@ export function AvatarMesh({ user, targetPosition }: Props) {
         position={[SHOULDER_X, SHOULDER_Y, ARM_Z]}
         rotation={[0, 0, ARM_TILT]}
       >
-        <mesh>
+        <mesh material={material}>
           <sphereGeometry args={[SHOULDER_R, 12, 10]} />
-          <meshStandardMaterial color={color} roughness={0.6} />
         </mesh>
-        <mesh position={[0, U_ARM_LOCAL_Y, 0]}>
+        <mesh position={[0, U_ARM_LOCAL_Y, 0]} material={material}>
           <cylinderGeometry args={[U_ARM_R_TOP, U_ARM_R_BOT, U_ARM_H, 10]} />
-          <meshStandardMaterial color={color} roughness={0.6} />
         </mesh>
-        <mesh position={[0, ELBOW_LOCAL_Y, 0]}>
+        <mesh position={[0, ELBOW_LOCAL_Y, 0]} material={material}>
           <sphereGeometry args={[ELBOW_R, 10, 8]} />
-          <meshStandardMaterial color={color} roughness={0.6} />
         </mesh>
-        <mesh position={[0, F_ARM_LOCAL_Y, 0]}>
+        <mesh position={[0, F_ARM_LOCAL_Y, 0]} material={material}>
           <cylinderGeometry args={[F_ARM_R_TOP, F_ARM_R_BOT, F_ARM_H, 10]} />
-          <meshStandardMaterial color={color} roughness={0.6} />
         </mesh>
-        <mesh position={[0, HAND_LOCAL_Y, 0]}>
+        <mesh position={[0, HAND_LOCAL_Y, 0]} material={material}>
           <sphereGeometry args={[HAND_R, 10, 8]} />
-          <meshStandardMaterial color={color} roughness={0.6} />
         </mesh>
       </group>
 
@@ -192,66 +295,53 @@ export function AvatarMesh({ user, targetPosition }: Props) {
         position={[-SHOULDER_X, SHOULDER_Y, ARM_Z]}
         rotation={[0, 0, -ARM_TILT]}
       >
-        <mesh>
+        <mesh material={material}>
           <sphereGeometry args={[SHOULDER_R, 12, 10]} />
-          <meshStandardMaterial color={color} roughness={0.6} />
         </mesh>
-        <mesh position={[0, U_ARM_LOCAL_Y, 0]}>
+        <mesh position={[0, U_ARM_LOCAL_Y, 0]} material={material}>
           <cylinderGeometry args={[U_ARM_R_TOP, U_ARM_R_BOT, U_ARM_H, 10]} />
-          <meshStandardMaterial color={color} roughness={0.6} />
         </mesh>
-        <mesh position={[0, ELBOW_LOCAL_Y, 0]}>
+        <mesh position={[0, ELBOW_LOCAL_Y, 0]} material={material}>
           <sphereGeometry args={[ELBOW_R, 10, 8]} />
-          <meshStandardMaterial color={color} roughness={0.6} />
         </mesh>
-        <mesh position={[0, F_ARM_LOCAL_Y, 0]}>
+        <mesh position={[0, F_ARM_LOCAL_Y, 0]} material={material}>
           <cylinderGeometry args={[F_ARM_R_TOP, F_ARM_R_BOT, F_ARM_H, 10]} />
-          <meshStandardMaterial color={color} roughness={0.6} />
         </mesh>
-        <mesh position={[0, HAND_LOCAL_Y, 0]}>
+        <mesh position={[0, HAND_LOCAL_Y, 0]} material={material}>
           <sphereGeometry args={[HAND_R, 10, 8]} />
-          <meshStandardMaterial color={color} roughness={0.6} />
         </mesh>
       </group>
 
       {/* Thighs */}
-      <mesh position={[-THIGH_X, THIGH_Y, 0]}>
+      <mesh position={[-THIGH_X, THIGH_Y, 0]} material={material}>
         <cylinderGeometry args={[THIGH_R_TOP, THIGH_R_BOT, THIGH_H, 10]} />
-        <meshStandardMaterial color={color} roughness={0.6} />
       </mesh>
-      <mesh position={[THIGH_X, THIGH_Y, 0]}>
+      <mesh position={[THIGH_X, THIGH_Y, 0]} material={material}>
         <cylinderGeometry args={[THIGH_R_TOP, THIGH_R_BOT, THIGH_H, 10]} />
-        <meshStandardMaterial color={color} roughness={0.6} />
       </mesh>
 
       {/* Knees */}
-      <mesh position={[-THIGH_X, KNEE_Y, 0]}>
+      <mesh position={[-THIGH_X, KNEE_Y, 0]} material={material}>
         <sphereGeometry args={[KNEE_R, 10, 8]} />
-        <meshStandardMaterial color={color} roughness={0.6} />
       </mesh>
-      <mesh position={[THIGH_X, KNEE_Y, 0]}>
+      <mesh position={[THIGH_X, KNEE_Y, 0]} material={material}>
         <sphereGeometry args={[KNEE_R, 10, 8]} />
-        <meshStandardMaterial color={color} roughness={0.6} />
       </mesh>
 
       {/* Shins */}
-      <mesh position={[-SHIN_X, SHIN_Y, 0]}>
+      <mesh position={[-SHIN_X, SHIN_Y, 0]} material={material}>
         <cylinderGeometry args={[SHIN_R_TOP, SHIN_R_BOT, SHIN_H, 10]} />
-        <meshStandardMaterial color={color} roughness={0.6} />
       </mesh>
-      <mesh position={[SHIN_X, SHIN_Y, 0]}>
+      <mesh position={[SHIN_X, SHIN_Y, 0]} material={material}>
         <cylinderGeometry args={[SHIN_R_TOP, SHIN_R_BOT, SHIN_H, 10]} />
-        <meshStandardMaterial color={color} roughness={0.6} />
       </mesh>
 
       {/* Feet */}
-      <mesh position={[-FOOT_X, FOOT_Y, FOOT_Z]}>
+      <mesh position={[-FOOT_X, FOOT_Y, FOOT_Z]} material={material}>
         <boxGeometry args={[FOOT_W, FOOT_H, FOOT_D]} />
-        <meshStandardMaterial color={color} roughness={0.6} />
       </mesh>
-      <mesh position={[FOOT_X, FOOT_Y, FOOT_Z]}>
+      <mesh position={[FOOT_X, FOOT_Y, FOOT_Z]} material={material}>
         <boxGeometry args={[FOOT_W, FOOT_H, FOOT_D]} />
-        <meshStandardMaterial color={color} roughness={0.6} />
       </mesh>
 
       <Html position={[0, LABEL_Y, 0]} center zIndexRange={[10, 0]}>
