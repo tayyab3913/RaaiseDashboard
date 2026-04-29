@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Html } from '@react-three/drei'
-import { Vector3, Group, MeshStandardMaterial, DoubleSide } from 'three'
+import { Vector3, Group, Mesh, MeshStandardMaterial, DoubleSide } from 'three'
 import layout from '@/config/layouts/default-layout.json'
 
 const H = layout.avatar.figureHeight
@@ -152,9 +152,9 @@ function resolveRing(
 ): RingPalette | null {
   if (status === 'Offline') return null
   if (isRegistered && authorized) {
-    return { color: '#3b82f6', emissive: '#1d6dff', intensity: 0.6 }
+    return { color: '#3b82f6', emissive: '#1d6dff', intensity: 1.0 }
   }
-  return { color: '#ef4444', emissive: '#dc2626', intensity: 0.6 }
+  return { color: '#ef4444', emissive: '#ff4242', intensity: 1.0 }
 }
 
 // Ring geometry, in world units. Sits on the floor centered under the
@@ -176,14 +176,30 @@ type Props = {
 
 export function AvatarMesh({ user, targetPosition }: Props) {
   const groupRef = useRef<Group>(null)
+  const ringMeshRef = useRef<Mesh>(null)
   const posRef = useRef(new Vector3(...targetPosition))
   const [hovered, setHovered] = useState(false)
 
-  useFrame((_, delta) => {
-    if (!groupRef.current) return
-    const t = 1 - Math.pow(0.001, delta)
-    posRef.current.lerp(new Vector3(...targetPosition), t)
-    groupRef.current.position.copy(posRef.current)
+  // Stable per-avatar phase offset so rings don't all pulse in unison.
+  const pulsePhase = useMemo(() => {
+    let h = 0
+    for (let i = 0; i < user.USERID.length; i++) {
+      h = (h * 31 + user.USERID.charCodeAt(i)) | 0
+    }
+    return ((h >>> 0) % 1000) / 1000 * Math.PI * 2
+  }, [user.USERID])
+
+  useFrame((state, delta) => {
+    if (groupRef.current) {
+      const t = 1 - Math.pow(0.001, delta)
+      posRef.current.lerp(new Vector3(...targetPosition), t)
+      groupRef.current.position.copy(posRef.current)
+    }
+    if (ringMeshRef.current) {
+      // 2 s pulse period (Math.PI rad/s), ±8% scale around 1.0
+      const pulse = 1 + Math.sin(state.clock.elapsedTime * Math.PI + pulsePhase) * 0.08
+      ringMeshRef.current.scale.set(pulse, pulse, pulse)
+    }
   })
 
   const palette = resolveColor(user.status, user.IS_REGISTERED, user.authorized)
@@ -238,10 +254,10 @@ export function AvatarMesh({ user, targetPosition }: Props) {
       onPointerLeave={() => setHovered(false)}
     >
       {/* Floor-ring role indicator — red = threat, blue = trusted user.
-          Lies flat on the floor centered under the avatar; lifted slightly
-          off the ground (RING_Y) to avoid z-fighting with the base plane. */}
+          Pulses gently to draw attention without being distracting. */}
       {ringMaterial && (
         <mesh
+          ref={ringMeshRef}
           position={[0, RING_Y, 0]}
           rotation={[-Math.PI / 2, 0, 0]}
           material={ringMaterial}
@@ -344,20 +360,26 @@ export function AvatarMesh({ user, targetPosition }: Props) {
         <boxGeometry args={[FOOT_W, FOOT_H, FOOT_D]} />
       </mesh>
 
-      <Html position={[0, LABEL_Y, 0]} center zIndexRange={[10, 0]}>
-        <div
-          style={{
-            fontSize: 10,
-            whiteSpace: 'nowrap',
-            color: 'white',
-            textShadow: '0 0 3px black, 0 0 3px black',
-            pointerEvents: 'none',
-            userSelect: 'none',
-          }}
-        >
-          {label}
-        </div>
-      </Html>
+      {/* Persistent name label — only for authorized registered users.
+          Intruder / Unauthorized roles are conveyed by the floor ring color,
+          and full details stay accessible via the hover tooltip below.
+          Hovering any avatar (including Intruders) also surfaces its label. */}
+      {(user.IS_REGISTERED && user.authorized) || hovered ? (
+        <Html position={[0, LABEL_Y, 0]} center zIndexRange={[10, 0]}>
+          <div
+            style={{
+              fontSize: 10,
+              whiteSpace: 'nowrap',
+              color: 'white',
+              textShadow: '0 0 3px black, 0 0 3px black',
+              pointerEvents: 'none',
+              userSelect: 'none',
+            }}
+          >
+            {label}
+          </div>
+        </Html>
+      ) : null}
 
       {hovered && (
         <Html position={[0, LABEL_Y + 0.35, 0]} center zIndexRange={[20, 0]}>
