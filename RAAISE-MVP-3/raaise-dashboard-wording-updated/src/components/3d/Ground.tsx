@@ -58,7 +58,7 @@ export function Ground() {
           subtle scale grid) as soon as the layout_map plane is disabled. */}
       <mesh
         rotation={[-Math.PI / 2, 0, 0]}
-        position={[0, -0.01, 0]}
+        position={[0, 0.01, 0]}
         renderOrder={-1}
         receiveShadow
       >
