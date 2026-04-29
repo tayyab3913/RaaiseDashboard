@@ -38,6 +38,7 @@ type MapProps = {
   users: User[]
   activeAreas: string[]
   showSensors: boolean
+  debugMode?: boolean
 }
 
 const sensorColors = {
@@ -117,7 +118,7 @@ function getSensorColor(sensor: SensorWithStatus): string {
   }
 }
 
-export default function BlockMap({ sensors, users, activeAreas, showSensors }: MapProps) {
+export default function BlockMap({ sensors, users, activeAreas, showSensors, debugMode = false }: MapProps) {
   const [sensorsWithStatus, setSensorsWithStatus] = useState<SensorWithStatus[]>([])
   const [usersWithStatus, setUsersWithStatus] = useState<UserWithStatus[]>([])
   const [selectedSensor, setSelectedSensor] = useState<SensorWithStatus | null>(null)
@@ -194,7 +195,7 @@ export default function BlockMap({ sensors, users, activeAreas, showSensors }: M
       >
         {/* 3D scene fills the container and renders the floorplan + avatars */}
         <div className="absolute inset-0">
-          <Scene3D users={usersFor3D} />
+          <Scene3D users={usersFor3D} debugMode={debugMode} />
         </div>
 
         {/* Sensor icons — 2D HTML overlay on top of the 3D canvas */}

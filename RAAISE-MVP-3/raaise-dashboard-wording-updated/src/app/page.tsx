@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import BlockMap from '@/components/Map'
 import SensorList from '@/components/SensorList'
-import { RefreshCw } from 'lucide-react'
+import { RefreshCw, Bug } from 'lucide-react'
 import DashboardMessages from '@/components/MessageList'
 
 type Sensor = {
@@ -40,6 +40,10 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [showSensors, setShowSensors] = useState(false)
   const [fetchInterval, setFetchInterval] = useState<number>(5000)
+  // Debug mode: each avatar wanders inside the scene at a steady walking
+  // speed instead of jumping between distant rooms. The actual wander logic
+  // lives in Avatar.tsx so motion is per-frame and per-avatar.
+  const [debugMode, setDebugMode] = useState<boolean>(false)
 
   const fetchData = async () => {
     setIsLoading(true)
@@ -81,10 +85,31 @@ export default function DashboardPage() {
   }
 
   useEffect(() => {
+    // In debug mode the API fetch is paused so freshly fetched users don't
+    // wipe the wander state every fetchInterval. We still want any users
+    // already loaded to keep wandering — Avatar.tsx handles that itself.
+    if (debugMode) return
     fetchData() // Fetch data on component mount
     const interval = setInterval(fetchData, fetchInterval) // Fetch data every 5 seconds
     return () => clearInterval(interval) // Cleanup interval on component unmount
-  }, [fetchInterval])
+  }, [fetchInterval, debugMode])
+
+  // Keep timestamps fresh while in debug mode. Otherwise the BlockMap status
+  // calc slides debug avatars to Inactive at 60 s and Offline at 120 s, which
+  // would dim/hide them and make the wander invisible.
+  useEffect(() => {
+    if (!debugMode) return
+    const tick = () => {
+      setUsers((prev) => {
+        if (prev.length === 0) return prev
+        const ts = new Date().toISOString()
+        return prev.map((u) => ({ ...u, TIMESTAMP: ts }))
+      })
+    }
+    tick()
+    const id = setInterval(tick, 5000)
+    return () => clearInterval(id)
+  }, [debugMode])
 
   const toggleSensors = () => {
     setShowSensors(!showSensors)
@@ -113,15 +138,28 @@ export default function DashboardPage() {
             </div>
           <button 
             onClick={fetchData} 
-            disabled={isLoading}
+            disabled={isLoading || debugMode}
             style={{width:'150px'}}
-            className="bg-purple-700 hover:bg-purple-600 text-white font-bold py-2 px-4 rounded flex items-center justify-center mr-4"
+            className="bg-purple-700 hover:bg-purple-600 disabled:bg-purple-900 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded flex items-center justify-center mr-4"
           >
             <RefreshCw className="mr-2 h-4 w-4" />
             {isLoading ? 'Refreshing...' : 'Refresh'}
           </button>
-          
-          
+
+          <button
+            onClick={() => setDebugMode((d) => !d)}
+            style={{ width: '150px' }}
+            className={`${
+              debugMode
+                ? 'bg-amber-500 hover:bg-amber-400 text-gray-900'
+                : 'bg-gray-700 hover:bg-gray-600 text-white'
+            } font-bold py-2 px-4 rounded flex items-center justify-center mr-4`}
+            title="Avatars wander gradually inside the scene at a steady walking speed — used to test the movement + direction-change animations"
+          >
+            <Bug className="mr-2 h-4 w-4" />
+            {debugMode ? 'Debug: ON' : 'Debug: OFF'}
+          </button>
+
           <button 
             onClick={toggleSensors} 
             style={{width:'150px'}}
@@ -136,7 +174,7 @@ export default function DashboardPage() {
           <SensorList sensors={originalSensors} />
         </div>
         <div className="w-full lg:w-9/12 xl:w-10/12">
-          <BlockMap sensors={originalSensors} users={users} showSensors={showSensors} activeAreas={activeAreas} />
+          <BlockMap sensors={originalSensors} users={users} showSensors={showSensors} activeAreas={activeAreas} debugMode={debugMode} />
           {/* Pass messages data as prop to DashboardMessages */}
           <DashboardMessages messages={messages} />
         </div>

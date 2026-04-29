@@ -7,6 +7,8 @@ import { Vector3, Group, Mesh, MeshStandardMaterial, DoubleSide } from 'three'
 import layout from '@/config/layouts/default-layout.json'
 
 const H = layout.avatar.figureHeight
+const PLANE_W = layout.plane.width
+const PLANE_H = layout.plane.height
 
 // Stylised humanoid proportions tuned for a top-down 3D dashboard view.
 // Vertical stack from the floor up:
@@ -18,27 +20,29 @@ const FOOT_W = H * 0.07                      // narrower
 const FOOT_H = H * 0.045
 const FOOT_D = H * 0.13                      // shorter (heel → toe)
 const FOOT_X = H * 0.075
-const FOOT_Y = FOOT_H * 0.5
 const FOOT_Z = H * 0.02
 
 // Lower leg / shin ----------------------------------------------------------
 const SHIN_H = H * 0.21
 const SHIN_R_TOP = H * 0.05
 const SHIN_R_BOT = H * 0.04
-const SHIN_X = FOOT_X
-const SHIN_Y = FOOT_H + SHIN_H * 0.5
 
 // Knee ----------------------------------------------------------------------
 const KNEE_R = H * 0.052
-const KNEE_Y = FOOT_H + SHIN_H
 
 // Upper leg / thigh ---------------------------------------------------------
 const THIGH_H = H * 0.22
 const THIGH_R_TOP = H * 0.07
 const THIGH_R_BOT = H * 0.05
 const THIGH_X = FOOT_X
-const THIGH_Y = KNEE_Y + THIGH_H * 0.5
 const HIP_Y = FOOT_H + SHIN_H + THIGH_H
+
+// Local Y positions inside the per-leg <group> whose pivot sits at the hip.
+// These let the whole leg rotate around the hip joint for the walk cycle.
+const THIGH_LOCAL_Y = -THIGH_H * 0.5
+const KNEE_LOCAL_Y = -THIGH_H
+const SHIN_LOCAL_Y = -THIGH_H - SHIN_H * 0.5
+const FOOT_LOCAL_Y = -THIGH_H - SHIN_H - FOOT_H * 0.5
 
 // Torso ---------------------------------------------------------------------
 const TORSO_H = H * 0.30
@@ -55,6 +59,10 @@ const NECK_Y = TORSO_TOP + NECK_H * 0.5
 // Head ----------------------------------------------------------------------
 const HEAD_R = H * 0.095
 const HEAD_Y = TORSO_TOP + NECK_H + HEAD_R
+// Subtle forward offset so the face leads the torso (the back of the skull
+// extends behind the spine, not the centerline). Shows up nicely when the
+// avatar turns and walks — gives a clearer "where am I looking" read.
+const HEAD_Z = H * 0.02
 
 // Arms ----------------------------------------------------------------------
 // Each arm is wrapped in a <group> at the shoulder pivot and tilted slightly
@@ -172,13 +180,77 @@ function resolveLabel(user: UserFor3D) {
 type Props = {
   user: UserFor3D
   targetPosition: [number, number, number]
+  debugMode?: boolean
 }
 
-export function AvatarMesh({ user, targetPosition }: Props) {
+// Walk-cycle tuning ---------------------------------------------------------
+// Limb swing angles (radians) and animation gating thresholds. Tuned for
+// readability from the top-down camera; smaller values look stiff, larger
+// look cartoonish.
+const LEG_SWING = 0.55                       // ~31°
+const ARM_SWING = 0.45                       // ~26°
+const WALK_FREQ = 3.0                        // base radians/s ⇒ ~0.5 Hz cycle
+const WALK_SPEED_GAIN = 0.6                  // extra freq per world unit/s
+const WALK_START_SPEED = 0.12                // world units/s threshold to start
+const WALK_BLEND_RATE = 5                    // 1/s — how fast walk fades in/out
+
+// Direction-change tuning ---------------------------------------------------
+// "Significant" turn = avatar rotates in place first, then walks. Below the
+// threshold the heading just smoothly tracks motion direction. Cooldown +
+// minimum-distance gate prevent jittery flip-flops.
+const TURN_THRESHOLD = Math.PI / 3           // 60°
+const TURN_RATE = 6                          // rad/s during in-place turn
+const TRACK_RATE = 7                         // rad/s when smoothly tracking
+const TURN_MIN_DISTANCE = 0.5                // skip turning if target is right here
+const TURN_COOLDOWN = 0.25                   // 250 ms after a turn before another
+const TURN_DONE_TOL = 0.05                   // ~3° — close enough to settle
+
+// Debug-wander tuning -------------------------------------------------------
+// In debug mode each avatar walks at a steady speed in some heading,
+// occasionally picks a new heading, and bounces off the scene's outer
+// rectangle so it stays in view. This is used to drive realistic motion
+// for testing the walk + turn animations — it intentionally ignores walls
+// (the floor is the playable area).
+const DEBUG_SPEED = 0.7                      // world units / second (~human walk)
+const DEBUG_DIR_MIN_INTERVAL = 2.0           // seconds — earliest random heading change
+const DEBUG_DIR_MAX_INTERVAL = 5.0           // seconds — latest random heading change
+const DEBUG_BOUND_MARGIN = 0.5               // keep avatar this far inside the plane edge
+
+function wrapAngle(a: number): number {
+  while (a > Math.PI) a -= Math.PI * 2
+  while (a < -Math.PI) a += Math.PI * 2
+  return a
+}
+
+export function AvatarMesh({ user, targetPosition, debugMode = false }: Props) {
   const groupRef = useRef<Group>(null)
   const ringMeshRef = useRef<Mesh>(null)
   const posRef = useRef(new Vector3(...targetPosition))
+  const lastPosRef = useRef(new Vector3(...targetPosition))
   const [hovered, setHovered] = useState(false)
+
+  // Limb groups so the walk cycle can rotate the whole leg/arm around its
+  // hip/shoulder pivot.
+  const leftLegRef = useRef<Group>(null)
+  const rightLegRef = useRef<Group>(null)
+  const leftArmRef = useRef<Group>(null)
+  const rightArmRef = useRef<Group>(null)
+
+  // Walk-cycle state
+  const walkPhaseRef = useRef(0)
+  const walkBlendRef = useRef(0)             // 0 = idle, 1 = walking
+
+  // Direction state
+  const yawRef = useRef(0)                   // current rotation.y
+  const targetYawRef = useRef(0)             // yaw we're rotating toward
+  const turningRef = useRef(false)           // in TURNING state (no translation)
+  const turnCooldownRef = useRef(0)          // seconds remaining before next turn
+
+  // Debug-wander state. Initialized lazily on the first debug frame so the
+  // avatar starts wandering from wherever it happens to be when debug toggles
+  // ON, rather than snapping to its PREDICTED_LOCATION.
+  const debugStateRef = useRef({ x: 0, z: 0, heading: 0, nextDirChange: 0 })
+  const debugInitRef = useRef(false)
 
   // Stable per-avatar phase offset so rings don't all pulse in unison.
   const pulsePhase = useMemo(() => {
@@ -190,14 +262,160 @@ export function AvatarMesh({ user, targetPosition }: Props) {
   }, [user.USERID])
 
   useFrame((state, delta) => {
-    if (groupRef.current) {
-      const t = 1 - Math.pow(0.001, delta)
-      posRef.current.lerp(new Vector3(...targetPosition), t)
+    if (!groupRef.current) return
+
+    if (debugMode) {
+      // ===== Debug wander =================================================
+      // Each avatar walks at constant speed in some heading, picks a new
+      // heading every few seconds, and bounces off the plane edges. Position
+      // is set directly (no lerp) so speed is exactly DEBUG_SPEED.
+
+      if (!debugInitRef.current) {
+        debugStateRef.current = {
+          x: posRef.current.x,
+          z: posRef.current.z,
+          heading: Math.random() * Math.PI * 2,
+          nextDirChange:
+            state.clock.elapsedTime +
+            DEBUG_DIR_MIN_INTERVAL +
+            Math.random() * (DEBUG_DIR_MAX_INTERVAL - DEBUG_DIR_MIN_INTERVAL),
+        }
+        debugInitRef.current = true
+      }
+
+      const ds = debugStateRef.current
+
+      // Random heading change after the scheduled time
+      if (state.clock.elapsedTime >= ds.nextDirChange) {
+        ds.heading = Math.random() * Math.PI * 2
+        ds.nextDirChange =
+          state.clock.elapsedTime +
+          DEBUG_DIR_MIN_INTERVAL +
+          Math.random() * (DEBUG_DIR_MAX_INTERVAL - DEBUG_DIR_MIN_INTERVAL)
+      }
+
+      // Advance. Heading=0 → walk toward +Z (matching yaw convention).
+      ds.x += Math.sin(ds.heading) * DEBUG_SPEED * delta
+      ds.z += Math.cos(ds.heading) * DEBUG_SPEED * delta
+
+      // Reflect off plane bounds and reverse the relevant axis component
+      // of the heading. Mirror across X-axis for X bounces, Z-axis for Z.
+      const HW = PLANE_W / 2 - DEBUG_BOUND_MARGIN
+      const HH = PLANE_H / 2 - DEBUG_BOUND_MARGIN
+      if (ds.x > HW) {
+        ds.x = HW
+        ds.heading = -ds.heading                      // sin → -sin, cos unchanged
+      } else if (ds.x < -HW) {
+        ds.x = -HW
+        ds.heading = -ds.heading
+      }
+      if (ds.z > HH) {
+        ds.z = HH
+        ds.heading = Math.PI - ds.heading             // cos → -cos, sin unchanged
+      } else if (ds.z < -HH) {
+        ds.z = -HH
+        ds.heading = Math.PI - ds.heading
+      }
+
+      posRef.current.set(ds.x, 0, ds.z)
       groupRef.current.position.copy(posRef.current)
+
+      // Smoothly track the heading for facing direction. No turn-in-place
+      // state — wander headings change abruptly enough that mid-stride
+      // pivoting reads as natural.
+      const yawDiff = wrapAngle(ds.heading - yawRef.current)
+      const blendY = 1 - Math.exp(-TRACK_RATE * delta)
+      yawRef.current = wrapAngle(yawRef.current + yawDiff * blendY)
+      groupRef.current.rotation.y = yawRef.current
+
+      // Make sure the normal-mode state is fresh when we switch back
+      turningRef.current = false
+      turnCooldownRef.current = 0
+    } else {
+      // ===== Normal mode: lerp + turn-first state machine =================
+      debugInitRef.current = false                    // reset wander on next ON
+
+      const tx = targetPosition[0]
+      const tz = targetPosition[2]
+      const dx = tx - posRef.current.x
+      const dz = tz - posRef.current.z
+      const distToTarget = Math.hypot(dx, dz)
+
+      // Desired yaw: face the target if it's far enough to matter; otherwise
+      // keep current heading (avoids spinning randomly when essentially stopped).
+      const desiredYaw =
+        distToTarget > 0.05 ? Math.atan2(dx, dz) : yawRef.current
+      const yawDiff = wrapAngle(desiredYaw - yawRef.current)
+
+      // Trigger TURNING state only when the change is meaningful AND we have
+      // enough distance left to walk AND we're not in cooldown from a recent
+      // turn. This is the anti-jitter gate.
+      if (
+        !turningRef.current &&
+        Math.abs(yawDiff) > TURN_THRESHOLD &&
+        distToTarget > TURN_MIN_DISTANCE &&
+        turnCooldownRef.current <= 0
+      ) {
+        turningRef.current = true
+        targetYawRef.current = desiredYaw
+      }
+
+      if (turningRef.current) {
+        const remaining = wrapAngle(targetYawRef.current - yawRef.current)
+        const step =
+          Math.sign(remaining) *
+          Math.min(Math.abs(remaining), TURN_RATE * delta)
+        yawRef.current = wrapAngle(yawRef.current + step)
+        if (Math.abs(remaining) < TURN_DONE_TOL) {
+          yawRef.current = targetYawRef.current
+          turningRef.current = false
+          turnCooldownRef.current = TURN_COOLDOWN
+        }
+      } else {
+        if (distToTarget > 0.05) {
+          const blend = 1 - Math.exp(-TRACK_RATE * delta)
+          yawRef.current = wrapAngle(yawRef.current + yawDiff * blend)
+        }
+        turnCooldownRef.current = Math.max(0, turnCooldownRef.current - delta)
+      }
+
+      groupRef.current.rotation.y = yawRef.current
+
+      if (!turningRef.current) {
+        const t = 1 - Math.pow(0.001, delta)
+        posRef.current.lerp(new Vector3(tx, targetPosition[1], tz), t)
+        groupRef.current.position.copy(posRef.current)
+      }
     }
+
+    // ===== Walk cycle (common to both modes) ===========================
+    const speed =
+      posRef.current.distanceTo(lastPosRef.current) / Math.max(delta, 1e-4)
+    lastPosRef.current.copy(posRef.current)
+
+    const wantWalk = !turningRef.current && speed > WALK_START_SPEED ? 1 : 0
+    walkBlendRef.current +=
+      (wantWalk - walkBlendRef.current) *
+      (1 - Math.exp(-WALK_BLEND_RATE * delta))
+
+    if (walkBlendRef.current > 0.01) {
+      walkPhaseRef.current += delta * (WALK_FREQ + speed * WALK_SPEED_GAIN)
+    }
+
+    const phase = walkPhaseRef.current
+    const blend = walkBlendRef.current
+    const legSwing = Math.sin(phase) * LEG_SWING * blend
+    const armSwing = Math.sin(phase) * ARM_SWING * blend
+
+    if (rightLegRef.current) rightLegRef.current.rotation.x = legSwing
+    if (leftLegRef.current) leftLegRef.current.rotation.x = -legSwing
+    if (rightArmRef.current) rightArmRef.current.rotation.x = -armSwing
+    if (leftArmRef.current) leftArmRef.current.rotation.x = armSwing
+
+    // ===== Floor ring pulse ============================================
     if (ringMeshRef.current) {
-      // 2 s pulse period (Math.PI rad/s), ±8% scale around 1.0
-      const pulse = 1 + Math.sin(state.clock.elapsedTime * Math.PI + pulsePhase) * 0.08
+      const pulse =
+        1 + Math.sin(state.clock.elapsedTime * Math.PI + pulsePhase) * 0.08
       ringMeshRef.current.scale.set(pulse, pulse, pulse)
     }
   })
@@ -268,7 +486,7 @@ export function AvatarMesh({ user, targetPosition }: Props) {
       )}
 
       {/* Head */}
-      <mesh position={[0, HEAD_Y, 0]} material={material} castShadow>
+      <mesh position={[0, HEAD_Y, HEAD_Z]} material={material} castShadow>
         <sphereGeometry args={[HEAD_R, 18, 14]} />
       </mesh>
 
@@ -282,10 +500,11 @@ export function AvatarMesh({ user, targetPosition }: Props) {
         <boxGeometry args={[TORSO_W, TORSO_H, TORSO_D]} />
       </mesh>
 
-      {/* Right arm: tilted slightly outward (around +X side). Wrapping all
-          arm parts in a rotated group at the shoulder pivot keeps the joints
-          aligned no matter how the tilt angle changes. */}
+      {/* Right arm. Wrapped in a group at the shoulder pivot. Initial Z tilt
+          gives the relaxed posture; the walk cycle drives rotation.x so the
+          arm swings forward/back from this resting offset. */}
       <group
+        ref={rightArmRef}
         position={[SHOULDER_X, SHOULDER_Y, ARM_Z]}
         rotation={[0, 0, ARM_TILT]}
       >
@@ -308,6 +527,7 @@ export function AvatarMesh({ user, targetPosition }: Props) {
 
       {/* Left arm: mirror via negative X position and opposite tilt sign */}
       <group
+        ref={leftArmRef}
         position={[-SHOULDER_X, SHOULDER_Y, ARM_Z]}
         rotation={[0, 0, -ARM_TILT]}
       >
@@ -328,37 +548,39 @@ export function AvatarMesh({ user, targetPosition }: Props) {
         </mesh>
       </group>
 
-      {/* Thighs */}
-      <mesh position={[-THIGH_X, THIGH_Y, 0]} material={material}>
-        <cylinderGeometry args={[THIGH_R_TOP, THIGH_R_BOT, THIGH_H, 10]} />
-      </mesh>
-      <mesh position={[THIGH_X, THIGH_Y, 0]} material={material}>
-        <cylinderGeometry args={[THIGH_R_TOP, THIGH_R_BOT, THIGH_H, 10]} />
-      </mesh>
+      {/* Right leg. Whole-leg group pivots at the hip so rotation.x produces
+          a clean forward/back swing. Pieces are positioned relative to the
+          hip joint (top of thigh = local 0). */}
+      <group ref={rightLegRef} position={[THIGH_X, HIP_Y, 0]}>
+        <mesh position={[0, THIGH_LOCAL_Y, 0]} material={material}>
+          <cylinderGeometry args={[THIGH_R_TOP, THIGH_R_BOT, THIGH_H, 10]} />
+        </mesh>
+        <mesh position={[0, KNEE_LOCAL_Y, 0]} material={material}>
+          <sphereGeometry args={[KNEE_R, 10, 8]} />
+        </mesh>
+        <mesh position={[0, SHIN_LOCAL_Y, 0]} material={material}>
+          <cylinderGeometry args={[SHIN_R_TOP, SHIN_R_BOT, SHIN_H, 10]} />
+        </mesh>
+        <mesh position={[0, FOOT_LOCAL_Y, FOOT_Z]} material={material}>
+          <boxGeometry args={[FOOT_W, FOOT_H, FOOT_D]} />
+        </mesh>
+      </group>
 
-      {/* Knees */}
-      <mesh position={[-THIGH_X, KNEE_Y, 0]} material={material}>
-        <sphereGeometry args={[KNEE_R, 10, 8]} />
-      </mesh>
-      <mesh position={[THIGH_X, KNEE_Y, 0]} material={material}>
-        <sphereGeometry args={[KNEE_R, 10, 8]} />
-      </mesh>
-
-      {/* Shins */}
-      <mesh position={[-SHIN_X, SHIN_Y, 0]} material={material}>
-        <cylinderGeometry args={[SHIN_R_TOP, SHIN_R_BOT, SHIN_H, 10]} />
-      </mesh>
-      <mesh position={[SHIN_X, SHIN_Y, 0]} material={material}>
-        <cylinderGeometry args={[SHIN_R_TOP, SHIN_R_BOT, SHIN_H, 10]} />
-      </mesh>
-
-      {/* Feet */}
-      <mesh position={[-FOOT_X, FOOT_Y, FOOT_Z]} material={material}>
-        <boxGeometry args={[FOOT_W, FOOT_H, FOOT_D]} />
-      </mesh>
-      <mesh position={[FOOT_X, FOOT_Y, FOOT_Z]} material={material}>
-        <boxGeometry args={[FOOT_W, FOOT_H, FOOT_D]} />
-      </mesh>
+      {/* Left leg: mirror via negative X position. */}
+      <group ref={leftLegRef} position={[-THIGH_X, HIP_Y, 0]}>
+        <mesh position={[0, THIGH_LOCAL_Y, 0]} material={material}>
+          <cylinderGeometry args={[THIGH_R_TOP, THIGH_R_BOT, THIGH_H, 10]} />
+        </mesh>
+        <mesh position={[0, KNEE_LOCAL_Y, 0]} material={material}>
+          <sphereGeometry args={[KNEE_R, 10, 8]} />
+        </mesh>
+        <mesh position={[0, SHIN_LOCAL_Y, 0]} material={material}>
+          <cylinderGeometry args={[SHIN_R_TOP, SHIN_R_BOT, SHIN_H, 10]} />
+        </mesh>
+        <mesh position={[0, FOOT_LOCAL_Y, FOOT_Z]} material={material}>
+          <boxGeometry args={[FOOT_W, FOOT_H, FOOT_D]} />
+        </mesh>
+      </group>
 
       {/* Persistent name label — only for authorized registered users.
           Intruder / Unauthorized roles are conveyed by the floor ring color,

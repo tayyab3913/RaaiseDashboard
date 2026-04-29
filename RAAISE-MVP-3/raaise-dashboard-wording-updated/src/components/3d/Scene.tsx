@@ -6,6 +6,7 @@ import { ContactShadows } from '@react-three/drei'
 import { ACESFilmicToneMapping } from 'three'
 import { Ground } from './Ground'
 import { Walls } from './Walls'
+import { Labels } from './Labels'
 import { AvatarMesh, UserFor3D } from './Avatar'
 import { locationToVector3, spreadOffset } from '@/lib/coordMapper'
 import layout from '@/config/layouts/default-layout.json'
@@ -17,9 +18,10 @@ const { width: planeW, height: planeH } = layout.plane
 
 type Props = {
   users: UserFor3D[]
+  debugMode?: boolean
 }
 
-export default function Scene({ users }: Props) {
+export default function Scene({ users, debugMode = false }: Props) {
   const locationGroups = useMemo(() => {
     const groups = new Map<string, UserFor3D[]>()
     for (const user of users) {
@@ -53,6 +55,7 @@ export default function Scene({ users }: Props) {
       <Suspense fallback={null}>
         <Ground />
         <Walls />
+        <Labels />
 
         {/* Soft baked contact shadows under every moving object.
             Grounds the avatars so they read as standing on the floor instead
@@ -77,6 +80,7 @@ export default function Scene({ users }: Props) {
               key={user.USERID}
               user={user}
               targetPosition={[bx + ox, 0, bz + oz]}
+              debugMode={debugMode}
             />
           )
         })}

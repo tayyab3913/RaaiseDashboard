@@ -25,7 +25,7 @@
   "walls": {
     "enabled": true,
     "height": 1.0,
-    "thickness": 0.07,
+    "thickness": 0.10,
     "color": "#b4b4ae",
     "opacity": 0.6,
     "polylines": [
@@ -852,5 +852,43 @@
       "x": 63,
       "y": 90
     }
-  }
+  },
+  "labels": [
+    { "id": "A00", "x": 4,    "y": 47, "kind": "room" },
+    { "id": "A01", "x": 15,   "y": 80, "kind": "room" },
+    { "id": "A02", "x": 36,   "y": 80, "kind": "room" },
+    { "id": "A03", "x": 60,   "y": 80, "kind": "room" },
+    { "id": "A04", "x": 67,   "y": 80, "kind": "room" },
+    { "id": "A05", "x": 74,   "y": 87, "kind": "room" },
+    { "id": "A06", "x": 85,   "y": 80, "kind": "room" },
+    { "id": "A07", "x": 96,   "y": 78, "kind": "room" },
+    { "id": "A08", "x": 96,   "y": 47, "kind": "room" },
+    { "id": "A09", "x": 96,   "y": 17, "kind": "room" },
+    { "id": "A10", "x": 53,   "y": 50, "kind": "room" },
+    { "id": "A11", "x": 67,   "y": 50, "kind": "room" },
+    { "id": "A12", "x": 78,   "y": 50, "kind": "room" },
+    { "id": "A13", "x": 80,   "y": 25, "kind": "room" },
+    { "id": "A14", "x": 70,   "y": 25, "kind": "room" },
+    { "id": "A15", "x": 60,   "y": 25, "kind": "room" },
+    { "id": "A16", "x": 53,   "y": 25, "kind": "room" },
+    { "id": "A17", "x": 46,   "y": 32, "kind": "room" },
+    { "id": "C01", "x": 15,   "y": 27, "kind": "corridor" },
+    { "id": "C02", "x": 36,   "y": 10, "kind": "corridor" },
+    { "id": "C03", "x": 67,   "y": 10, "kind": "corridor" },
+    { "id": "C04", "x": 89,   "y": 33, "kind": "corridor" },
+    { "id": "C05", "x": 64,   "y": 67, "kind": "corridor" },
+    { "id": "C06", "x": 63,   "y": 92, "kind": "corridor" },
+    { "id": "P01", "x": 11,   "y": 64, "kind": "door" },
+    { "id": "P15", "x": 60,   "y": 60, "kind": "door" },
+    { "id": "P33", "x": 81,   "y": 8,  "kind": "door" },
+    { "id": "P43", "x": 73,   "y": 8,  "kind": "door" },
+    { "id": "P45", "x": 67,   "y": 78, "kind": "door" },
+    { "id": "P53", "x": 65,   "y": 8,  "kind": "door" },
+    { "id": "P56", "x": 73,   "y": 92, "kind": "door" },
+    { "id": "P63", "x": 56,   "y": 8,  "kind": "door" },
+    { "id": "P64", "x": 88,   "y": 70, "kind": "door" },
+    { "id": "P74", "x": 86,   "y": 50, "kind": "door" },
+    { "id": "P84", "x": 88,   "y": 47, "kind": "door" },
+    { "id": "P94", "x": 88,   "y": 13, "kind": "door" }
+  ]
 }
