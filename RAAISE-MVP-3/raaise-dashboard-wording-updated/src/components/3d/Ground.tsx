@@ -19,9 +19,25 @@ export function Ground() {
   }, [texture])
 
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} renderOrder={0}>
-      <planeGeometry args={[width, height]} />
-      <meshStandardMaterial map={texture} />
-    </mesh>
+    <>
+      {/* White base ground. Sits just below the textured floorplan so it
+          becomes the visible floor as soon as the layout_map plane is
+          disabled. */}
+      <mesh
+        rotation={[-Math.PI / 2, 0, 0]}
+        position={[0, 0.01, 0]}
+        renderOrder={-1}
+      >
+        <planeGeometry args={[width, height]} />
+        <meshStandardMaterial color="#ffffff" />
+      </mesh>
+
+      {/* 2D layout_map texture (stays visible for now; will be disabled
+          later to expose the white base). */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} renderOrder={0}>
+        <planeGeometry args={[width, height]} />
+        <meshStandardMaterial map={texture} />
+      </mesh>
+    </>
   )
 }

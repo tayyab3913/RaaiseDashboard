@@ -38,7 +38,15 @@ BAND_TOL_PCT = 0.7     # group rows/cols into a single wall band
 MIN_FINAL_PCT = 3.0    # drop merged segments shorter than this, in %
 MARGIN_PCT = 0.5       # skip pixels in the outer X% margin (image bleed)
 DEDUP_DIST_PCT = 3.5   # merge parallel bands within this distance (% of secondary)
-DEDUP_OVERLAP = 0.3    # ...and whose intervals overlap >= this fraction
+DEDUP_OVERLAP = 0.25   # ...and whose intervals overlap >= this fraction
+# Complementary merge: catches the case where one wall is captured as TWO
+# fragmented bands (e.g. building outer outline + an inner stylization line).
+# Both bands must be fragmented (>= 2 intervals each) AND their union must be
+# meaningfully larger than either band on its own (they fill each other's gaps).
+# This avoids over-merging genuine parallel walls (long continuous lines).
+COMPL_DIST_PCT = 8.0   # secondary-axis distance allowed for complementary merge
+COMPL_UNION_RATIO = 1.15  # union(a,b) / max(len(a), len(b)) must exceed this
+COMPL_MIN_PIECES = 2   # both bands need at least this many intervals
 # ----------------------------------------------------------------------------
 
 
@@ -175,18 +183,65 @@ def _intervals_length(ints: list[tuple[int, int]]) -> int:
     return sum(e - s for s, e in ints) or 1
 
 
+def _union_length(
+    a: list[tuple[int, int]], b: list[tuple[int, int]]
+) -> int:
+    merged = merge_intervals(list(a) + list(b), 0)
+    return _intervals_length(merged)
+
+
+def _should_fuse(
+    pos_j: float,
+    ints_j: list[tuple[int, int]],
+    pos_k: float,
+    ints_k: list[tuple[int, int]],
+    dist_close: float,
+    dist_compl: float,
+) -> bool:
+    delta = abs(pos_j - pos_k)
+    len_j = _intervals_length(ints_j)
+    len_k = _intervals_length(ints_k)
+    shorter = min(len_j, len_k)
+    longer = max(len_j, len_k)
+
+    if delta <= dist_close:
+        ov = _interval_overlap(ints_j, ints_k)
+        if ov / shorter >= DEDUP_OVERLAP:
+            return True
+
+    if (
+        delta <= dist_compl
+        and len(ints_j) >= COMPL_MIN_PIECES
+        and len(ints_k) >= COMPL_MIN_PIECES
+    ):
+        union = _union_length(ints_j, ints_k)
+        if longer > 0 and union / longer >= COMPL_UNION_RATIO:
+            return True
+
+    return False
+
+
 def merge_close_bands(
     bands: list[tuple[float, list[tuple[int, int]]]],
     secondary: int,
     gap: int,
     min_final: int,
 ) -> list[tuple[float, list[tuple[int, int]]]]:
-    """Iteratively fuse parallel bands that are likely the two edges of one wall
-    (or detection-broken fragments of one wall). Two bands fuse if their
-    perpendicular distance is below DEDUP_DIST_PCT and one's intervals overlap
-    >= DEDUP_OVERLAP of the shorter band.
+    """Iteratively fuse parallel bands that represent the same conceptual wall.
+
+    Two cases are handled:
+
+    1. Close-and-overlapping (`DEDUP_DIST_PCT` / `DEDUP_OVERLAP`): two bands
+       sit very close perpendicularly and their intervals share enough length
+       to be the two edges of one thick wall.
+
+    2. Complementary fragments (`COMPL_DIST_PCT` / `COMPL_UNION_RATIO`): two
+       fragmented bands a bit further apart whose pieces interleave so the
+       union is significantly longer than either. This catches the case where
+       the layout draws one logical wall as two stylized parallel lines.
     """
-    dist = max(1, secondary * DEDUP_DIST_PCT / 100)
+    dist_close = max(1.0, secondary * DEDUP_DIST_PCT / 100)
+    dist_compl = max(dist_close, secondary * COMPL_DIST_PCT / 100)
     bands = list(bands)
     changed = True
     while changed:
@@ -196,11 +251,9 @@ def merge_close_bands(
             for k in range(j + 1, n):
                 pos_j, ints_j = bands[j]
                 pos_k, ints_k = bands[k]
-                if abs(pos_j - pos_k) > dist:
-                    continue
-                ov = _interval_overlap(ints_j, ints_k)
-                shorter = min(_intervals_length(ints_j), _intervals_length(ints_k))
-                if ov / shorter < DEDUP_OVERLAP:
+                if not _should_fuse(
+                    pos_j, ints_j, pos_k, ints_k, dist_close, dist_compl
+                ):
                     continue
                 w_j = _intervals_length(ints_j)
                 w_k = _intervals_length(ints_k)

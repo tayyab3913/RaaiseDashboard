@@ -37,19 +37,22 @@ export type UserFor3D = {
 }
 
 function resolveColors(status: string, isRegistered: boolean, authorized: boolean) {
+  // Vibrant variants of the original red / pink / blue / gray palette.
+  // Same hues, higher saturation + brightness so avatars pop on the white
+  // floor while preserving their semantic meaning.
   if (status === 'Offline') return { primary: '#4b5563', secondary: '#6b7280' }
   const dim = status === 'Inactive'
   if (!isRegistered)
     return dim
-      ? { primary: '#991b1b', secondary: '#b91c1c' }
-      : { primary: '#dc2626', secondary: '#ef4444' }
+      ? { primary: '#cc1414', secondary: '#e62525' }
+      : { primary: '#ff1a1a', secondary: '#ff5252' }
   if (!authorized)
     return dim
-      ? { primary: '#9d174d', secondary: '#be185d' }
-      : { primary: '#db2777', secondary: '#ec4899' }
+      ? { primary: '#cc1573', secondary: '#e62a8c' }
+      : { primary: '#ff1f8a', secondary: '#ff5cb0' }
   return dim
-    ? { primary: '#1e40af', secondary: '#1d4ed8' }
-    : { primary: '#2563eb', secondary: '#3b82f6' }
+    ? { primary: '#1745cc', secondary: '#3361e6' }
+    : { primary: '#1f6dff', secondary: '#5a96ff' }
 }
 
 function resolveLabel(user: UserFor3D) {
@@ -75,7 +78,7 @@ export function AvatarMesh({ user, targetPosition }: Props) {
     groupRef.current.position.copy(posRef.current)
   })
 
-  const { primary, secondary } = resolveColors(user.status, user.IS_REGISTERED, user.authorized)
+  const { primary } = resolveColors(user.status, user.IS_REGISTERED, user.authorized)
   const label = resolveLabel(user)
 
   return (
@@ -87,7 +90,7 @@ export function AvatarMesh({ user, targetPosition }: Props) {
     >
       <mesh position={[0, HEAD_Y, 0]}>
         <sphereGeometry args={[HEAD_R, 10, 10]} />
-        <meshStandardMaterial color={secondary} />
+        <meshStandardMaterial color={primary} />
       </mesh>
 
       <mesh position={[0, TORSO_Y, 0]}>
@@ -107,12 +110,12 @@ export function AvatarMesh({ user, targetPosition }: Props) {
 
       <mesh position={[-LEG_X, LEG_Y, 0]}>
         <cylinderGeometry args={[LEG_R, LEG_R * 0.8, LEG_H, 6]} />
-        <meshStandardMaterial color={secondary} />
+        <meshStandardMaterial color={primary} />
       </mesh>
 
       <mesh position={[LEG_X, LEG_Y, 0]}>
         <cylinderGeometry args={[LEG_R, LEG_R * 0.8, LEG_H, 6]} />
-        <meshStandardMaterial color={secondary} />
+        <meshStandardMaterial color={primary} />
       </mesh>
 
       <Html position={[0, LABEL_Y, 0]} center zIndexRange={[10, 0]}>
