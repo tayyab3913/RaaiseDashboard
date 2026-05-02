@@ -1,7 +1,7 @@
 'use client'
 
 import { Suspense, useMemo } from 'react'
-import { Canvas } from '@react-three/fiber'
+import { Canvas, useFrame } from '@react-three/fiber'
 import { ContactShadows } from '@react-three/drei'
 import { ACESFilmicToneMapping } from 'three'
 import { Ground } from './Ground'
@@ -9,6 +9,7 @@ import { Walls } from './Walls'
 import { Labels } from './Labels'
 import { AvatarMesh, UserFor3D } from './Avatar'
 import { locationToVector3, spreadOffset } from '@/lib/coordMapper'
+import type { CameraDirection } from '@/components/CameraDirectionPicker'
 import layout from '@/config/layouts/default-layout.json'
 
 const [cx, cy, cz] = layout.camera.position
@@ -16,12 +17,64 @@ const { fov, near, far } = layout.camera
 const { spreadRadius } = layout.avatar
 const { width: planeW, height: planeH } = layout.plane
 
+// Camera orbit parameters. Y stays fixed at the layout's configured height,
+// and the horizontal radius is derived from the initial position so any
+// existing camera tweak in default-layout.json is preserved.
+const ORBIT_RADIUS = Math.hypot(cx, cz)
+const ORBIT_Y = cy
+
+// Azimuth of each compass direction, measured by `atan2(x, z)`.
+//   atan2(0, +R) = 0       → S (camera south of origin, looking north)
+//   atan2(+R, 0) = +π/2    → E
+//   atan2(0, -R) = ±π      → N
+//   atan2(-R, 0) = -π/2    → W
+const DIR_AZIMUTH: Record<CameraDirection, number> = {
+  S: 0,
+  SE: Math.PI / 4,
+  E: Math.PI / 2,
+  NE: (3 * Math.PI) / 4,
+  N: Math.PI,
+  NW: -(3 * Math.PI) / 4,
+  W: -Math.PI / 2,
+  SW: -Math.PI / 4,
+}
+
+// Smoothly orbits the camera to whichever direction is selected. The radius
+// and height are constant so the path is a true arc around origin (the camera
+// doesn't briefly zoom in by lerping straight through the centre). lookAt
+// keeps the centre framed at all times.
+function CameraController({ direction }: { direction: CameraDirection }) {
+  const targetAzimuth = DIR_AZIMUTH[direction]
+  useFrame((state, delta) => {
+    const cam = state.camera
+    const currentAz = Math.atan2(cam.position.x, cam.position.z)
+    let azDelta = targetAzimuth - currentAz
+    // Wrap to [-π, π] so we always rotate the short way around.
+    if (azDelta > Math.PI) azDelta -= 2 * Math.PI
+    if (azDelta < -Math.PI) azDelta += 2 * Math.PI
+    const t = 1 - Math.pow(0.001, delta)
+    const newAz = currentAz + azDelta * t
+    cam.position.set(
+      ORBIT_RADIUS * Math.sin(newAz),
+      ORBIT_Y,
+      ORBIT_RADIUS * Math.cos(newAz)
+    )
+    cam.lookAt(0, 0, 0)
+  })
+  return null
+}
+
 type Props = {
   users: UserFor3D[]
   debugMode?: boolean
+  cameraDirection?: CameraDirection
 }
 
-export default function Scene({ users, debugMode = false }: Props) {
+export default function Scene({
+  users,
+  debugMode = false,
+  cameraDirection = 'S',
+}: Props) {
   const locationGroups = useMemo(() => {
     const groups = new Map<string, UserFor3D[]>()
     for (const user of users) {
@@ -51,6 +104,11 @@ export default function Scene({ users, debugMode = false }: Props) {
       <directionalLight position={[6, 12, 6]} intensity={0.9} />
       <directionalLight position={[-6, 8, -4]} intensity={0.35} />
       <ambientLight intensity={0.25} />
+
+      {/* Smoothly orbits the camera to whichever direction the picker
+          selected. Driven each frame so transitions look like a fly-around
+          rather than a jump-cut. */}
+      <CameraController direction={cameraDirection} />
 
       <Suspense fallback={null}>
         <Ground />

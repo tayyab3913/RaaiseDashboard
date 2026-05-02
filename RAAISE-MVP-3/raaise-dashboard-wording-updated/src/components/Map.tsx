@@ -3,6 +3,10 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import { UserFor3D } from '@/components/3d/Avatar'
+import {
+  CameraDirectionPicker,
+  type CameraDirection,
+} from '@/components/CameraDirectionPicker'
 
 const Scene3D = dynamic(() => import('@/components/3d/Scene'), { ssr: false })
 
@@ -122,6 +126,9 @@ export default function BlockMap({ sensors, users, activeAreas, showSensors, deb
   const [sensorsWithStatus, setSensorsWithStatus] = useState<SensorWithStatus[]>([])
   const [usersWithStatus, setUsersWithStatus] = useState<UserWithStatus[]>([])
   const [selectedSensor, setSelectedSensor] = useState<SensorWithStatus | null>(null)
+  // Camera angle around the scene. 'S' matches the layout's default camera
+  // position so users see the same view they always have on first load.
+  const [cameraDirection, setCameraDirection] = useState<CameraDirection>('S')
 
   const updateStatus = useCallback(() => {
     const now = Date.now()
@@ -195,8 +202,19 @@ export default function BlockMap({ sensors, users, activeAreas, showSensors, deb
       >
         {/* 3D scene fills the container and renders the floorplan + avatars */}
         <div className="absolute inset-0">
-          <Scene3D users={usersFor3D} debugMode={debugMode} />
+          <Scene3D
+            users={usersFor3D}
+            debugMode={debugMode}
+            cameraDirection={cameraDirection}
+          />
         </div>
+
+        {/* Camera-angle compass: 3×3 picker overlaid on the canvas. The
+            currently active direction is highlighted and disabled. */}
+        <CameraDirectionPicker
+          value={cameraDirection}
+          onChange={setCameraDirection}
+        />
 
         {/* Sensor icons — 2D HTML overlay on top of the 3D canvas */}
         <div className="absolute inset-0" style={{ zIndex: 10, pointerEvents: 'none' }}>
