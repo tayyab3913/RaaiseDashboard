@@ -3,7 +3,7 @@
 import { Suspense, useMemo } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { ContactShadows } from '@react-three/drei'
-import { ACESFilmicToneMapping } from 'three'
+import { ACESFilmicToneMapping, PCFSoftShadowMap } from 'three'
 import { Ground } from './Ground'
 import { Walls } from './Walls'
 import { Labels } from './Labels'
@@ -49,7 +49,6 @@ function CameraController({ direction }: { direction: CameraDirection }) {
     const cam = state.camera
     const currentAz = Math.atan2(cam.position.x, cam.position.z)
     let azDelta = targetAzimuth - currentAz
-    // Wrap to [-π, π] so we always rotate the short way around.
     if (azDelta > Math.PI) azDelta -= 2 * Math.PI
     if (azDelta < -Math.PI) azDelta += 2 * Math.PI
     const t = 1 - Math.pow(0.001, delta)
@@ -87,27 +86,73 @@ export default function Scene({
 
   return (
     <Canvas
+      shadows={{ type: PCFSoftShadowMap }}
       camera={{ position: [cx, cy, cz], fov, near, far }}
       style={{ width: '100%', height: '100%' }}
-      gl={{ antialias: true, toneMapping: ACESFilmicToneMapping }}
+      // ACES Filmic gives the scene a slight cinematic curve and compresses
+      // bright highlights gracefully. Exposure stays at 1.0 — the multi-light
+      // rig already targets the right brightness, anything higher washes the
+      // floorplan texture out.
+      gl={{
+        antialias: true,
+        toneMapping: ACESFilmicToneMapping,
+        toneMappingExposure: 1.0,
+      }}
     >
-      {/* Soft neutral backdrop instead of the default black void. Reads as
-          a "viewport" framing the building. */}
-      <color attach="background" args={['#e8eaed']} />
+      <color attach="background" args={['#e9eef4']} />
 
-      {/* Studio-style 3-light setup:
-          • hemisphere — natural sky/ground tint over everything
-          • key directional — primary highlight from above-front-right
-          • fill directional — softens shadows from the opposite side
-          • small ambient — keeps deep shadows from going pitch black */}
-      <hemisphereLight args={['#dde6f0', '#7a7a7a', 0.55]} />
-      <directionalLight position={[6, 12, 6]} intensity={0.9} />
-      <directionalLight position={[-6, 8, -4]} intensity={0.35} />
-      <ambientLight intensity={0.25} />
+      {/* Subtle linear fog matched to the background colour. Kicks in just past
+          the camera's working distance and saturates well beyond the plane —
+          gives far walls a hint of haze without smudging the foreground.
+          Stable in three core; no shader patching, no compatibility risk. */}
+      <fog attach="fog" args={['#e9eef4', 22, 55]} />
 
-      {/* Smoothly orbits the camera to whichever direction the picker
-          selected. Driven each frame so transitions look like a fly-around
-          rather than a jump-cut. */}
+      {/* Studio 4-light rig (no IBL — image-based lighting was over-flooding
+          the floorplan ground texture and washing out wall contrast):
+          • key  — main warm directional from above-right; the only shadow caster
+          • fill — cool light from opposite side, softens shadows
+          • rim  — back light from below-front, separates avatars from ground
+          • hemi — sky/ground bounce, lifts the whole scene gently
+          • amb  — tiny floor for deep crevices */}
+      <directionalLight
+        position={[9, 16, 7]}
+        intensity={1.1}
+        color="#fff3dc"
+        castShadow
+        // 4k shadow map + tightened frustum (just larger than the plane's
+        // half-diagonal, ~13.5u) wastes no texels outside the visible area,
+        // which translates to noticeably crisper avatar/wall shadows.
+        shadow-mapSize-width={4096}
+        shadow-mapSize-height={4096}
+        shadow-camera-near={0.5}
+        shadow-camera-far={40}
+        shadow-camera-left={-14}
+        shadow-camera-right={14}
+        shadow-camera-top={8}
+        shadow-camera-bottom={-8}
+        shadow-bias={-0.0003}
+        shadow-normalBias={0.025}
+      />
+      <directionalLight
+        position={[-8, 10, -5]}
+        intensity={0.35}
+        color="#cfe0ff"
+      />
+      <directionalLight
+        position={[0, 4, 10]}
+        intensity={0.25}
+        color="#ffffff"
+      />
+      <hemisphereLight args={['#dde6f0', '#6b6b6b', 0.45]} />
+      <ambientLight intensity={0.2} />
+
+      {/* NOTE: drei's <SoftShadows> was removed deliberately. It works by
+          monkey-patching three's internal shadow GLSL chunks; on three r184
+          (current installed version) those chunk names changed, the patch
+          silently fails, and every MeshStandardMaterial in the scene renders
+          white-washed. Three's built-in PCFSoftShadowMap (enabled on the
+          Canvas above) gives soft enough edges for our top-down view. */}
+
       <CameraController direction={cameraDirection} />
 
       <Suspense fallback={null}>
@@ -115,16 +160,16 @@ export default function Scene({
         <Walls />
         <Labels />
 
-        {/* Soft baked contact shadows under every moving object.
-            Grounds the avatars so they read as standing on the floor instead
-            of hovering. Updates every frame because avatars move. */}
+        {/* Soft baked contact shadows under every moving object. Sits in
+            addition to the directional shadow — covers cases where the
+            directional shadow misses (e.g. avatars under wall overhangs). */}
         <ContactShadows
           position={[0, 0.005, 0]}
           scale={[planeW + 4, planeH + 4]}
           resolution={1024}
           blur={2.4}
           far={4}
-          opacity={0.45}
+          opacity={0.4}
         />
 
         {users.map((user) => {

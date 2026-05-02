@@ -198,7 +198,16 @@ export default function BlockMap({ sensors, users, activeAreas, showSensors, deb
     <div>
       <div
         className="relative"
-        style={{ width: '100%', maxWidth: '1500px', height: '600px' }}
+        style={{
+          width: '100%',
+          maxWidth: '1500px',
+          height: '600px',
+          // Soft radial gradient behind the canvas — picks up at the canvas
+          // edges where the scene's solid background ends, framing the 3D
+          // viewport with a subtle "stage" rather than a hard rectangle.
+          background:
+            'radial-gradient(ellipse at 50% 35%, #f4f7fb 0%, #e2e8f0 70%, #cbd5e1 100%)',
+        }}
       >
         {/* 3D scene fills the container and renders the floorplan + avatars */}
         <div className="absolute inset-0">
@@ -208,6 +217,23 @@ export default function BlockMap({ sensors, users, activeAreas, showSensors, deb
             cameraDirection={cameraDirection}
           />
         </div>
+
+        {/* Cinematic vignette — pure CSS, sits above the canvas but below
+            interactive overlays. pointer-events-none so it never intercepts
+            sensor hovers / camera-picker clicks. The inset shadow gives a
+            soft dark edge on all four corners; the radial gradient deepens
+            the corner contrast. Keeps the eye on the centre of the floorplan. */}
+        <div
+          className="absolute inset-0"
+          style={{
+            pointerEvents: 'none',
+            zIndex: 5,
+            boxShadow: 'inset 0 0 120px 25px rgba(15, 23, 42, 0.32)',
+            background:
+              'radial-gradient(ellipse at center, transparent 55%, rgba(15, 23, 42, 0.18) 100%)',
+            mixBlendMode: 'multiply',
+          }}
+        />
 
         {/* Camera-angle compass: 3×3 picker overlaid on the canvas. The
             currently active direction is highlighted and disabled. */}

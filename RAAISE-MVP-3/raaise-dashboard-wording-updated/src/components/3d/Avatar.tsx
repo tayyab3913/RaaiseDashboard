@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Html } from '@react-three/drei'
 import { Vector3, Group, Mesh, MeshStandardMaterial, DoubleSide } from 'three'
@@ -260,6 +260,20 @@ export function AvatarMesh({ user, targetPosition, debugMode = false }: Props) {
     }
     return ((h >>> 0) % 1000) / 1000 * Math.PI * 2
   }, [user.USERID])
+
+  // Enable shadow casting on every body mesh in one pass so we don't have to
+  // sprinkle `castShadow` across all 21 limb/torso elements. The floor ring
+  // is excluded — it lives on the ground plane and would project a weird
+  // disk shadow underneath itself.
+  useLayoutEffect(() => {
+    if (!groupRef.current) return
+    groupRef.current.traverse((obj) => {
+      if (obj instanceof Mesh && obj !== ringMeshRef.current) {
+        obj.castShadow = true
+        obj.receiveShadow = true
+      }
+    })
+  }, [])
 
   useFrame((state, delta) => {
     if (!groupRef.current) return
