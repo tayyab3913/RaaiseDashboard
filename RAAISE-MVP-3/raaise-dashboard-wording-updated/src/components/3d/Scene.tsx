@@ -28,7 +28,8 @@ const ORBIT_Y = cy
 //   atan2(+R, 0) = +π/2    → E
 //   atan2(0, -R) = ±π      → N
 //   atan2(-R, 0) = -π/2    → W
-const DIR_AZIMUTH: Record<CameraDirection, number> = {
+type OrbitDirection = Exclude<CameraDirection, 'TOP'>
+const DIR_AZIMUTH: Record<OrbitDirection, number> = {
   S: 0,
   SE: Math.PI / 4,
   E: Math.PI / 2,
@@ -39,25 +40,89 @@ const DIR_AZIMUTH: Record<CameraDirection, number> = {
   SW: -Math.PI / 4,
 }
 
-// Smoothly orbits the camera to whichever direction is selected. The radius
-// and height are constant so the path is a true arc around origin (the camera
-// doesn't briefly zoom in by lerping straight through the centre). lookAt
-// keeps the centre framed at all times.
+// Margin baked into the top-down altitude calculation — keeps a comfortable
+// frame around the floorplan instead of clipping the outer walls.
+const TOP_FIT_MARGIN = 1.1
+
+// Smoothly orbits the camera to whichever direction is selected, OR lifts it
+// directly overhead for the TOP view.
+//   • Orbit modes:  fixed radius + height, true arc around origin so the
+//                   camera never cuts through the scene centre.
+//   • TOP mode:     position lerps to (0, altitude, 0); altitude is computed
+//                   from the canvas aspect ratio so the whole plane fits in
+//                   view; camera.up swings to (0, 0, -1) so the layout map
+//                   reads with north (image top) at the screen top, matching
+//                   the original 2D map orientation.
+//   • Returning from TOP, the camera direct-lerps onto the orbit ring before
+//     resuming arc orbit, so we never see a hard teleport.
 function CameraController({ direction }: { direction: CameraDirection }) {
-  const targetAzimuth = DIR_AZIMUTH[direction]
   useFrame((state, delta) => {
     const cam = state.camera
-    const currentAz = Math.atan2(cam.position.x, cam.position.z)
-    let azDelta = targetAzimuth - currentAz
-    if (azDelta > Math.PI) azDelta -= 2 * Math.PI
-    if (azDelta < -Math.PI) azDelta += 2 * Math.PI
     const t = 1 - Math.pow(0.001, delta)
-    const newAz = currentAz + azDelta * t
-    cam.position.set(
-      ORBIT_RADIUS * Math.sin(newAz),
-      ORBIT_Y,
-      ORBIT_RADIUS * Math.cos(newAz)
-    )
+
+    if (direction === 'TOP') {
+      // Altitude that fits both plane dimensions in view, accounting for
+      // current canvas aspect (vertical FOV is fixed; horizontal FOV depends
+      // on aspect). We need height >= planeH/2/tan AND height >=
+      // planeW/2/(aspect*tan); take the larger.
+      const aspect = state.size.width / Math.max(state.size.height, 1)
+      const fovRad = (fov * Math.PI) / 180
+      const halfTan = Math.tan(fovRad / 2)
+      const altByH = (planeH / 2) / halfTan
+      const altByW = (planeW / 2) / (aspect * halfTan)
+      const targetY = Math.max(altByH, altByW) * TOP_FIT_MARGIN
+
+      // Position lerp toward (0, targetY, 0). The 0.001 z keeps the up vector
+      // and view direction from being exactly collinear during the swing,
+      // which would otherwise cause lookAt to flip the orientation.
+      cam.position.x += (0 - cam.position.x) * t
+      cam.position.y += (targetY - cam.position.y) * t
+      cam.position.z += (0.001 - cam.position.z) * t
+
+      // Up vector lerps toward -Z so map north (image top edge = world -Z)
+      // appears at screen top in the plan view.
+      cam.up.x += (0 - cam.up.x) * t
+      cam.up.y += (0 - cam.up.y) * t
+      cam.up.z += (-1 - cam.up.z) * t
+      cam.up.normalize()
+    } else {
+      // Reset up to world up (smoothly, in case we just left TOP).
+      cam.up.x += (0 - cam.up.x) * t
+      cam.up.y += (1 - cam.up.y) * t
+      cam.up.z += (0 - cam.up.z) * t
+      cam.up.normalize()
+
+      const targetAzimuth = DIR_AZIMUTH[direction]
+
+      // If the camera is already orbiting the scene at roughly the right
+      // height & radius, animate by interpolating azimuth (true arc). If it
+      // isn't (typically just left TOP mode), direct-lerp position into the
+      // orbit ring instead, otherwise the arc lerp would snap Y instantly.
+      const horizDist = Math.hypot(cam.position.x, cam.position.z)
+      const onOrbit =
+        Math.abs(horizDist - ORBIT_RADIUS) < ORBIT_RADIUS * 0.15 &&
+        Math.abs(cam.position.y - ORBIT_Y) < ORBIT_Y * 0.2
+
+      if (onOrbit) {
+        const currentAz = Math.atan2(cam.position.x, cam.position.z)
+        let azDelta = targetAzimuth - currentAz
+        if (azDelta > Math.PI) azDelta -= 2 * Math.PI
+        if (azDelta < -Math.PI) azDelta += 2 * Math.PI
+        const newAz = currentAz + azDelta * t
+        cam.position.set(
+          ORBIT_RADIUS * Math.sin(newAz),
+          ORBIT_Y,
+          ORBIT_RADIUS * Math.cos(newAz)
+        )
+      } else {
+        const targetX = ORBIT_RADIUS * Math.sin(targetAzimuth)
+        const targetZ = ORBIT_RADIUS * Math.cos(targetAzimuth)
+        cam.position.x += (targetX - cam.position.x) * t
+        cam.position.y += (ORBIT_Y - cam.position.y) * t
+        cam.position.z += (targetZ - cam.position.z) * t
+      }
+    }
+
     cam.lookAt(0, 0, 0)
   })
   return null

@@ -62,12 +62,14 @@ export function Ground() {
 
   return (
     <>
-      {/* White base ground with a barely-visible checker. Sits just below
-          the textured floorplan so it becomes the visible floor (with the
-          subtle scale grid) as soon as the layout_map plane is disabled. */}
+      {/* White base ground with a barely-visible checker. Sits BELOW the
+          floorplan plane in world Y so depth-test alone (without relying on
+          render-order tie-breaks) keeps the layout map cleanly on top —
+          critical for the top-down camera view where any z-fight between
+          these two coplanar textures would be glaring. */}
       <mesh
         rotation={[-Math.PI / 2, 0, 0]}
-        position={[0, 0.01, 0]}
+        position={[0, 0, 0]}
         renderOrder={-1}
         receiveShadow
       >
@@ -75,10 +77,15 @@ export function Ground() {
         <meshStandardMaterial map={checker} roughness={0.85} metalness={0.05} />
       </mesh>
 
-      {/* 2D layout_map texture (stays visible for now; will be disabled
-          later to expose the white base). receiveShadow lets the directional
-          light's shadow project onto the printed floorplan. */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} renderOrder={0} receiveShadow>
+      {/* 2D layout_map texture, lifted just above the white base. This is
+          still well below the floor rings (y=0.012) and walls (y>=0.02), so
+          stacking order remains: checker → layout map → rings → walls. */}
+      <mesh
+        rotation={[-Math.PI / 2, 0, 0]}
+        position={[0, 0.005, 0]}
+        renderOrder={0}
+        receiveShadow
+      >
         <planeGeometry args={[width, height]} />
         <meshStandardMaterial map={texture} roughness={0.9} metalness={0.05} />
       </mesh>

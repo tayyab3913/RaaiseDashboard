@@ -37,12 +37,16 @@ const THIGH_R_BOT = H * 0.05
 const THIGH_X = FOOT_X
 const HIP_Y = FOOT_H + SHIN_H + THIGH_H
 
-// Local Y positions inside the per-leg <group> whose pivot sits at the hip.
-// These let the whole leg rotate around the hip joint for the walk cycle.
+// Local Y positions inside the per-leg <group> (pivot at the hip). The thigh
+// + knee sphere stay parented to this group; the shin/foot live in a NESTED
+// <group> at the knee, which is what allows the knee to actually flex.
 const THIGH_LOCAL_Y = -THIGH_H * 0.5
 const KNEE_LOCAL_Y = -THIGH_H
-const SHIN_LOCAL_Y = -THIGH_H - SHIN_H * 0.5
-const FOOT_LOCAL_Y = -THIGH_H - SHIN_H - FOOT_H * 0.5
+
+// Local Y positions inside the shin <group> (pivot at the knee). The shin
+// extends downward from the knee; the foot sits at the bottom of the shin.
+const SHIN_RELATIVE_Y = -SHIN_H * 0.5
+const FOOT_RELATIVE_Y = -SHIN_H - FOOT_H * 0.5
 
 // Torso ---------------------------------------------------------------------
 const TORSO_H = H * 0.30
@@ -81,17 +85,21 @@ const U_ARM_R_BOT = H * 0.044
 const U_ARM_LOCAL_Y = -U_ARM_H * 0.5         // y-offset inside arm group
 
 const ELBOW_R = H * 0.046
+// Elbow position inside the arm group — also where the forearm <group> is
+// anchored. Forearm + hand are NESTED in that sub-group so the elbow can
+// actually flex; upper arm + elbow sphere stay parented to the arm group.
 const ELBOW_LOCAL_Y = -U_ARM_H
 
 const F_ARM_H = H * 0.17                     // 5% shorter than before
 const F_ARM_R_TOP = H * 0.044
 const F_ARM_R_BOT = H * 0.038
-const F_ARM_LOCAL_Y = -U_ARM_H - F_ARM_H * 0.5
+// Forearm + hand positions inside the forearm <group> (pivot at the elbow).
+const F_ARM_RELATIVE_Y = -F_ARM_H * 0.5
 
 // Hand sphere is slightly smaller than the wrist (F_ARM_R_BOT = 0.038H) so
 // it tucks into the forearm rather than ballooning out as a separate ball.
 const HAND_R = H * 0.034
-const HAND_LOCAL_Y = -U_ARM_H - F_ARM_H - HAND_R * 0.5
+const HAND_RELATIVE_Y = -F_ARM_H - HAND_R * 0.5
 
 // Label ---------------------------------------------------------------------
 const LABEL_Y = H + 0.12
@@ -194,6 +202,17 @@ const WALK_SPEED_GAIN = 0.6                  // extra freq per world unit/s
 const WALK_START_SPEED = 0.12                // world units/s threshold to start
 const WALK_BLEND_RATE = 5                    // 1/s — how fast walk fades in/out
 
+// Joint-flex tuning ---------------------------------------------------------
+// Knees and elbows now have real pivots (the shin/forearm groups). These
+// constants drive how much they bend during the walk cycle.
+//   • Knees flex during swing-through (foot lifting back→front), peak at
+//     mid-swing, straight at toe-off and heel-strike.
+//   • Elbows carry a small base flex while walking and gain a touch more
+//     at the forward swing peak (hand drawn slightly toward the chest).
+const KNEE_BEND_MAX = 0.85                   // ~49° at mid-swing peak
+const ELBOW_BASE_BEND = 0.20                 // ~11° baseline while walking
+const ELBOW_VARY_BEND = 0.20                 // ~11° extra at forward swing peak
+
 // Direction-change tuning ---------------------------------------------------
 // "Significant" turn = avatar rotates in place first, then walks. Below the
 // threshold the heading just smoothly tracks motion direction. Cooldown +
@@ -229,12 +248,17 @@ export function AvatarMesh({ user, targetPosition, debugMode = false }: Props) {
   const lastPosRef = useRef(new Vector3(...targetPosition))
   const [hovered, setHovered] = useState(false)
 
-  // Limb groups so the walk cycle can rotate the whole leg/arm around its
-  // hip/shoulder pivot.
+  // Limb groups. The outer ref pivots the whole limb at the hip/shoulder.
+  // The shin/forearm refs are NESTED inside their parent limb — they pivot
+  // at the knee/elbow so we get real joint flex, not a rigid rotation.
   const leftLegRef = useRef<Group>(null)
   const rightLegRef = useRef<Group>(null)
+  const leftShinRef = useRef<Group>(null)
+  const rightShinRef = useRef<Group>(null)
   const leftArmRef = useRef<Group>(null)
   const rightArmRef = useRef<Group>(null)
+  const leftForearmRef = useRef<Group>(null)
+  const rightForearmRef = useRef<Group>(null)
 
   // Walk-cycle state
   const walkPhaseRef = useRef(0)
@@ -418,13 +442,38 @@ export function AvatarMesh({ user, targetPosition, debugMode = false }: Props) {
 
     const phase = walkPhaseRef.current
     const blend = walkBlendRef.current
-    const legSwing = Math.sin(phase) * LEG_SWING * blend
-    const armSwing = Math.sin(phase) * ARM_SWING * blend
+    const sinPhase = Math.sin(phase)
+    const cosPhase = Math.cos(phase)
+
+    // Hip / shoulder swing (whole-limb rotation around its top pivot).
+    const legSwing = sinPhase * LEG_SWING * blend
+    const armSwing = sinPhase * ARM_SWING * blend
+
+    // Knee flex. With rightLeg.rotation.x = +sin(phase), the right leg is at
+    // the back of its arc when sin>0 and at the front when sin<0; the swing-
+    // through (back→front) phase therefore happens while sin is decreasing,
+    // i.e. cos<0 — that's where the knee flexes most. Left leg uses opposite
+    // hip swing, so its swing-through is at cos>0. max(0,...) keeps the knee
+    // flexing only one direction (backwards toward the butt).
+    const rightKneeBend = Math.max(0, -cosPhase) * KNEE_BEND_MAX * blend
+    const leftKneeBend = Math.max(0, cosPhase) * KNEE_BEND_MAX * blend
+
+    // Elbow flex. rightArm.rotation.x = -sin(phase), so the right arm is
+    // forward when sin>0 (matched to right-leg-back, opposite-limb gait).
+    // We add a small base bend during walk + a touch more at the forward
+    // swing peak. Negative rotation.x flexes the forearm forward (hand
+    // toward chest) since the forearm hangs in -Y from the elbow.
+    const rightElbowBend = (ELBOW_BASE_BEND + Math.max(0, sinPhase) * ELBOW_VARY_BEND) * blend
+    const leftElbowBend = (ELBOW_BASE_BEND + Math.max(0, -sinPhase) * ELBOW_VARY_BEND) * blend
 
     if (rightLegRef.current) rightLegRef.current.rotation.x = legSwing
     if (leftLegRef.current) leftLegRef.current.rotation.x = -legSwing
+    if (rightShinRef.current) rightShinRef.current.rotation.x = rightKneeBend
+    if (leftShinRef.current) leftShinRef.current.rotation.x = leftKneeBend
     if (rightArmRef.current) rightArmRef.current.rotation.x = -armSwing
     if (leftArmRef.current) leftArmRef.current.rotation.x = armSwing
+    if (rightForearmRef.current) rightForearmRef.current.rotation.x = -rightElbowBend
+    if (leftForearmRef.current) leftForearmRef.current.rotation.x = -leftElbowBend
 
     // ===== Floor ring pulse ============================================
     if (ringMeshRef.current) {
@@ -514,9 +563,12 @@ export function AvatarMesh({ user, targetPosition, debugMode = false }: Props) {
         <boxGeometry args={[TORSO_W, TORSO_H, TORSO_D]} />
       </mesh>
 
-      {/* Right arm. Wrapped in a group at the shoulder pivot. Initial Z tilt
-          gives the relaxed posture; the walk cycle drives rotation.x so the
-          arm swings forward/back from this resting offset. */}
+      {/* Right arm. Two-tier rig:
+            • outer group  → shoulder pivot (Z tilt for relaxed pose, X for swing)
+              ├─ shoulder + upper arm + elbow sphere (rigid w/ shoulder)
+              └─ inner group → elbow pivot (X for forearm flex)
+                  ├─ forearm
+                  └─ hand */}
       <group
         ref={rightArmRef}
         position={[SHOULDER_X, SHOULDER_Y, ARM_Z]}
@@ -531,12 +583,14 @@ export function AvatarMesh({ user, targetPosition, debugMode = false }: Props) {
         <mesh position={[0, ELBOW_LOCAL_Y, 0]} material={material}>
           <sphereGeometry args={[ELBOW_R, 10, 8]} />
         </mesh>
-        <mesh position={[0, F_ARM_LOCAL_Y, 0]} material={material}>
-          <cylinderGeometry args={[F_ARM_R_TOP, F_ARM_R_BOT, F_ARM_H, 10]} />
-        </mesh>
-        <mesh position={[0, HAND_LOCAL_Y, 0]} material={material}>
-          <sphereGeometry args={[HAND_R, 10, 8]} />
-        </mesh>
+        <group ref={rightForearmRef} position={[0, ELBOW_LOCAL_Y, 0]}>
+          <mesh position={[0, F_ARM_RELATIVE_Y, 0]} material={material}>
+            <cylinderGeometry args={[F_ARM_R_TOP, F_ARM_R_BOT, F_ARM_H, 10]} />
+          </mesh>
+          <mesh position={[0, HAND_RELATIVE_Y, 0]} material={material}>
+            <sphereGeometry args={[HAND_R, 10, 8]} />
+          </mesh>
+        </group>
       </group>
 
       {/* Left arm: mirror via negative X position and opposite tilt sign */}
@@ -554,17 +608,22 @@ export function AvatarMesh({ user, targetPosition, debugMode = false }: Props) {
         <mesh position={[0, ELBOW_LOCAL_Y, 0]} material={material}>
           <sphereGeometry args={[ELBOW_R, 10, 8]} />
         </mesh>
-        <mesh position={[0, F_ARM_LOCAL_Y, 0]} material={material}>
-          <cylinderGeometry args={[F_ARM_R_TOP, F_ARM_R_BOT, F_ARM_H, 10]} />
-        </mesh>
-        <mesh position={[0, HAND_LOCAL_Y, 0]} material={material}>
-          <sphereGeometry args={[HAND_R, 10, 8]} />
-        </mesh>
+        <group ref={leftForearmRef} position={[0, ELBOW_LOCAL_Y, 0]}>
+          <mesh position={[0, F_ARM_RELATIVE_Y, 0]} material={material}>
+            <cylinderGeometry args={[F_ARM_R_TOP, F_ARM_R_BOT, F_ARM_H, 10]} />
+          </mesh>
+          <mesh position={[0, HAND_RELATIVE_Y, 0]} material={material}>
+            <sphereGeometry args={[HAND_R, 10, 8]} />
+          </mesh>
+        </group>
       </group>
 
-      {/* Right leg. Whole-leg group pivots at the hip so rotation.x produces
-          a clean forward/back swing. Pieces are positioned relative to the
-          hip joint (top of thigh = local 0). */}
+      {/* Right leg. Two-tier rig:
+            • outer group  → hip pivot (rotation.x = leg swing)
+              ├─ thigh + knee sphere (rigid w/ thigh)
+              └─ inner group → knee pivot (rotation.x = knee flex)
+                  ├─ shin
+                  └─ foot */}
       <group ref={rightLegRef} position={[THIGH_X, HIP_Y, 0]}>
         <mesh position={[0, THIGH_LOCAL_Y, 0]} material={material}>
           <cylinderGeometry args={[THIGH_R_TOP, THIGH_R_BOT, THIGH_H, 10]} />
@@ -572,12 +631,14 @@ export function AvatarMesh({ user, targetPosition, debugMode = false }: Props) {
         <mesh position={[0, KNEE_LOCAL_Y, 0]} material={material}>
           <sphereGeometry args={[KNEE_R, 10, 8]} />
         </mesh>
-        <mesh position={[0, SHIN_LOCAL_Y, 0]} material={material}>
-          <cylinderGeometry args={[SHIN_R_TOP, SHIN_R_BOT, SHIN_H, 10]} />
-        </mesh>
-        <mesh position={[0, FOOT_LOCAL_Y, FOOT_Z]} material={material}>
-          <boxGeometry args={[FOOT_W, FOOT_H, FOOT_D]} />
-        </mesh>
+        <group ref={rightShinRef} position={[0, KNEE_LOCAL_Y, 0]}>
+          <mesh position={[0, SHIN_RELATIVE_Y, 0]} material={material}>
+            <cylinderGeometry args={[SHIN_R_TOP, SHIN_R_BOT, SHIN_H, 10]} />
+          </mesh>
+          <mesh position={[0, FOOT_RELATIVE_Y, FOOT_Z]} material={material}>
+            <boxGeometry args={[FOOT_W, FOOT_H, FOOT_D]} />
+          </mesh>
+        </group>
       </group>
 
       {/* Left leg: mirror via negative X position. */}
@@ -588,12 +649,14 @@ export function AvatarMesh({ user, targetPosition, debugMode = false }: Props) {
         <mesh position={[0, KNEE_LOCAL_Y, 0]} material={material}>
           <sphereGeometry args={[KNEE_R, 10, 8]} />
         </mesh>
-        <mesh position={[0, SHIN_LOCAL_Y, 0]} material={material}>
-          <cylinderGeometry args={[SHIN_R_TOP, SHIN_R_BOT, SHIN_H, 10]} />
-        </mesh>
-        <mesh position={[0, FOOT_LOCAL_Y, FOOT_Z]} material={material}>
-          <boxGeometry args={[FOOT_W, FOOT_H, FOOT_D]} />
-        </mesh>
+        <group ref={leftShinRef} position={[0, KNEE_LOCAL_Y, 0]}>
+          <mesh position={[0, SHIN_RELATIVE_Y, 0]} material={material}>
+            <cylinderGeometry args={[SHIN_R_TOP, SHIN_R_BOT, SHIN_H, 10]} />
+          </mesh>
+          <mesh position={[0, FOOT_RELATIVE_Y, FOOT_Z]} material={material}>
+            <boxGeometry args={[FOOT_W, FOOT_H, FOOT_D]} />
+          </mesh>
+        </group>
       </group>
 
       {/* Persistent name label — only for authorized registered users.
