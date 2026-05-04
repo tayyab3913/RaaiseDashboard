@@ -8,7 +8,9 @@ import { Ground } from './Ground'
 import { Walls } from './Walls'
 import { Labels } from './Labels'
 import { AvatarMesh, UserFor3D } from './Avatar'
+import { Sensors } from './Sensors'
 import { locationToVector3, spreadOffset } from '@/lib/coordMapper'
+import type { SensorWithStatus } from '@/lib/sensors'
 import type { CameraDirection } from '@/components/CameraDirectionPicker'
 import layout from '@/config/layouts/default-layout.json'
 
@@ -130,12 +132,16 @@ function CameraController({ direction }: { direction: CameraDirection }) {
 
 type Props = {
   users: UserFor3D[]
+  sensors?: SensorWithStatus[]
+  showSensors?: boolean
   debugMode?: boolean
   cameraDirection?: CameraDirection
 }
 
 export default function Scene({
   users,
+  sensors,
+  showSensors = false,
   debugMode = false,
   cameraDirection = 'S',
 }: Props) {
@@ -224,6 +230,7 @@ export default function Scene({
         <Ground />
         <Walls />
         <Labels />
+        {showSensors && sensors && <Sensors sensors={sensors} />}
 
         {/* Soft baked contact shadows under every moving object. Sits in
             addition to the directional shadow — covers cases where the
