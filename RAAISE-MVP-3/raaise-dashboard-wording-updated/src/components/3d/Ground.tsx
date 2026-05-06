@@ -69,7 +69,7 @@ export function Ground() {
           these two coplanar textures would be glaring. */}
       <mesh
         rotation={[-Math.PI / 2, 0, 0]}
-        position={[0, 0, 0]}
+        position={[0, 0.01, 0]}
         renderOrder={-1}
         receiveShadow
       >

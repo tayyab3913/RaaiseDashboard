@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import BlockMap from '@/components/Map'
 import SensorList from '@/components/SensorList'
-import { RefreshCw, Bug } from 'lucide-react'
+import { RefreshCw, Bug, Menu, X } from 'lucide-react'
 import DashboardMessages from '@/components/MessageList'
 
 type Sensor = {
@@ -44,6 +44,10 @@ export default function DashboardPage() {
   // speed instead of jumping between distant rooms. The actual wander logic
   // lives in Avatar.tsx so motion is per-frame and per-avatar.
   const [debugMode, setDebugMode] = useState<boolean>(false)
+  // Sidebar visibility — default open. The hamburger in the top-left of the
+  // header toggles it; when closed the map area expands to fill the full
+  // available width.
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(true)
 
   const fetchData = async () => {
     setIsLoading(true)
@@ -123,7 +127,23 @@ export default function DashboardPage() {
   return (
     <div className="flex flex-col h-screen">
       <div className="flex items-center justify-between p-4 bg-gray-900">
-        <h1 className="text-xl font-bold text-gray-100 ml-2">Raaise Dashboard</h1>
+        <div className="flex items-center gap-3">
+          {/* Hamburger / close — toggles the legend & sensors sidebar. Sits at
+              the top-left of the header; when the sidebar is open it shows an
+              X (so the same button reads as "close"), otherwise the three-line
+              menu icon. */}
+          <button
+            type="button"
+            onClick={() => setSidebarOpen((o) => !o)}
+            aria-label={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+            aria-pressed={sidebarOpen}
+            title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+            className="flex h-9 w-9 items-center justify-center rounded-md bg-gray-800 text-gray-100 transition-colors hover:bg-gray-700 hover:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/60"
+          >
+            {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
+          <h1 className="text-xl font-bold text-gray-100">Raaise Dashboard</h1>
+        </div>
         <div className='flex items-center'>
           <div className="flex mr-4">
               <div className="text-sm text-white mr-2 font-bold">Auto Refresh:</div>
@@ -170,10 +190,20 @@ export default function DashboardPage() {
         </div>
       </div>
       <div className="flex flex-1 overflow-hidden">
-        <div className="hidden lg:block lg:w-3/12 xl:w-2/12 p-4 bg-gray-100 overflow-y-auto">
-          <SensorList sensors={originalSensors} />
-        </div>
-        <div className="w-full lg:w-9/12 xl:w-10/12">
+        {/* Sidebar — only mounted when open. Width matches the legacy
+            proportions on lg+ so the map keeps its current size; on smaller
+            screens the sidebar is hidden regardless (matches original
+            behaviour, where only the map was visible on phones/tablets). */}
+        {sidebarOpen && (
+          <aside className="hidden lg:block lg:w-3/12 xl:w-2/12 flex-shrink-0 overflow-hidden border-r border-slate-200">
+            <SensorList sensors={originalSensors} />
+          </aside>
+        )}
+
+        {/* Main content — flex-1 so it expands to fill whatever width the
+            sidebar leaves behind, including the full row when the sidebar
+            is closed. */}
+        <div className="flex-1 min-w-0 flex flex-col">
           <BlockMap sensors={originalSensors} users={users} showSensors={showSensors} activeAreas={activeAreas} debugMode={debugMode} />
           {/* Pass messages data as prop to DashboardMessages */}
           <DashboardMessages messages={messages} />

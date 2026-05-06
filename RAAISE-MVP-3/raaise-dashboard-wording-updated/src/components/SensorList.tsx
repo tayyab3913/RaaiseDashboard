@@ -1,14 +1,92 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { Activity, Radio } from 'lucide-react'
 
 type Sensor = {
   SENSORID: string
   TIMESTAMP: string
 }
 
+type SensorStatus = 'Active' | 'Inactive' | 'Offline'
+
 type SensorWithStatus = Sensor & {
-  status: 'Active' | 'Inactive' | 'Offline'
+  status: SensorStatus
+}
+
+// ---------------------------------------------------------------------------
+// Static legend data. Driven from a list (instead of repeated inline JSX) so
+// the legend stays consistent and easy to extend.
+// ---------------------------------------------------------------------------
+const AMBIENT_SYSTEMS: { label: string; swatchClass: string }[] = [
+  { label: 'NFC AC (NFxx)', swatchClass: 'bg-lime-500' },
+  { label: 'RFID T&T (RFxx)', swatchClass: 'bg-cyan-500' },
+  { label: 'FP AC (FPxx)', swatchClass: 'bg-orange-500' },
+  { label: 'PIR MD (PSxx)', swatchClass: 'bg-pink-500' },
+  { label: 'CCTV T&T (CCxx)', swatchClass: 'bg-yellow-500' },
+  { label: 'WiFi PS (WPxx)', swatchClass: 'bg-gray-500' },
+]
+
+const USER_TYPES: {
+  label: string
+  ringClass: string
+  dotClass: string
+}[] = [
+  { label: 'Authorized User', ringClass: 'bg-blue-200', dotClass: 'bg-blue-500' },
+  { label: 'Unauthorized User', ringClass: 'bg-pink-200', dotClass: 'bg-pink-500' },
+  { label: 'Intruder', ringClass: 'bg-red-200', dotClass: 'bg-red-500' },
+  { label: 'Unknown', ringClass: 'bg-gray-200', dotClass: 'bg-gray-500' },
+]
+
+// ---------------------------------------------------------------------------
+// Status pill for the reed point list. Soft tinted background + matching
+// text colour reads like a chip rather than competing with the SENSORID.
+// ---------------------------------------------------------------------------
+const STATUS_STYLES: Record<SensorStatus, string> = {
+  Active: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200',
+  Inactive: 'bg-amber-50 text-amber-700 ring-1 ring-amber-200',
+  Offline: 'bg-slate-100 text-slate-500 ring-1 ring-slate-200',
+}
+
+function StatusPill({ status }: { status: SensorStatus }) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${STATUS_STYLES[status]}`}
+    >
+      {status === 'Active' && (
+        <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+      )}
+      {status}
+    </span>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Section card — shared chrome (header + body) so legend and sensor list
+// share the same visual weight inside the sidebar.
+// ---------------------------------------------------------------------------
+function SectionCard({
+  title,
+  icon,
+  children,
+  bodyClassName = 'p-3',
+}: {
+  title: string
+  icon?: React.ReactNode
+  children: React.ReactNode
+  bodyClassName?: string
+}) {
+  return (
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <header className="flex items-center gap-2 border-b border-slate-100 bg-slate-50/80 px-3 py-2">
+        {icon && <span className="text-slate-500">{icon}</span>}
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-slate-700">
+          {title}
+        </h3>
+      </header>
+      <div className={bodyClassName}>{children}</div>
+    </section>
+  )
 }
 
 export default function SensorList({ sensors }: { sensors: Sensor[] }) {
@@ -21,7 +99,7 @@ export default function SensorList({ sensors }: { sensors: Sensor[] }) {
         const sensorTime = new Date(sensor.TIMESTAMP).getTime()
         const timeDifference = currentTime - sensorTime
 
-        let status: 'Active' | 'Inactive' | 'Offline'
+        let status: SensorStatus
         if (timeDifference <= 15000) {
           status = 'Active'
         } else if (timeDifference <= 20000) {
@@ -41,87 +119,86 @@ export default function SensorList({ sensors }: { sensors: Sensor[] }) {
     return () => clearInterval(intervalId)
   }, [sensors])
 
+  // Active count for the reed-points header — small but useful "live" signal.
+  const activeCount = sensorsWithStatus.filter((s) => s.status === 'Active').length
+
   return (
-    <div>
-      {/* Legend */}
-      <div className="bg-white p-2 rounded">
-        <div className="mb-2">
-          <h3 className="font-bold text-base mb-1">Ambient Systems</h3>
-          <div className="flex items-center space-x-2">
-            <div className="w-3 h-3 rounded-xs bg-lime-500"></div>
-            <span className="text-sm">NFC AC (NFxx)</span>
-          </div>
-          
-          <div className="flex items-center space-x-2">
-            <div className="w-3 h-3 rounded-xs bg-cyan-500 "></div>
-            <span className="text-sm">RFID T&T (RFxx)</span>
-          </div>
-        
-          <div className="flex items-center space-x-2">
-            <div className="w-3 h-3 rounded-xs bg-orange-500"></div>
-            <span className="text-sm">FP AC (FPxx)</span>
-          </div>
-        
-          <div className="flex items-center space-x-2">
-            <div className="w-3 h-3 rounded-xs bg-pink-500"></div>
-            <span className="text-sm">PIR MD (PSxx)</span>
-          </div>
-        
-          <div className="flex items-center space-x-2">
-            <div className="w-3 h-3 rounded-xs bg-yellow-500"></div>
-            <span className="text-sm">CCTV T&T (CCxx)</span>
-          </div>
-          <div className="flex items-center space-x-2">
-            <div className="w-3 h-3 rounded-xs bg-gray-500 "></div>
-            <span className="text-sm">WiFi PS (WPxx)</span>
-          </div>
-        </div>
-        <div>
-        <h3 className="font-bold text-base mb-1">Users</h3>
-        <div className="mt-1 flex items-center gap-x-1.5">
-                      <div className={`flex-none rounded-full bg-blue-300 p-1`}>
-                        <div className={`h-1.5 w-1.5 rounded-full bg-blue-500`}></div>
-                      </div>
-                      <p className="text-sm leading-5">Authorized User</p>
-                  </div>
-                  <div className="mt-1 flex items-center gap-x-1.5">
-                      <div className={`flex-none rounded-full bg-pink-300  p-1`}>
-                        <div className={`h-1.5 w-1.5 rounded-full bg-pink-500 `}></div>
-                      </div>
-                      <p className="text-sm leading-5">Unauthorized User</p>
-                  </div>
-                  <div className="mt-1 flex items-center gap-x-1.5">
-                      <div className={`flex-none rounded-full bg-red-300 p-1`}>
-                        <div className={`h-1.5 w-1.5 rounded-full bg-red-500`}></div>
-                      </div>
-                      <p className="text-sm leading-5">Intruder</p>
-                  </div>
-                  <div className="mt-1 flex items-center gap-x-1.5">
-                      <div className={`flex-none rounded-full bg-gray-300 p-1`}>
-                        <div className={`h-1.5 w-1.5 rounded-full bg-gray-500`}></div>
-                      </div>
-                      <p className="text-sm leading-5">Unknown</p>
-                  </div>
+    <div className="flex h-full flex-col bg-gradient-to-b from-slate-50 to-slate-100">
+      {/* Sidebar header — sets a consistent visual anchor and matches the
+          dark header bar above by leaning into a clean monochrome palette. */}
+      <div className="border-b border-slate-200 bg-white/80 px-4 py-3 backdrop-blur-sm">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+          Dashboard
+        </p>
+        <h2 className="mt-0.5 text-base font-semibold text-slate-900">
+          Legend & Sensors
+        </h2>
       </div>
-    </div>
-    <div className="mt-2 overflow-y-auto h-[calc(100vh-8rem)]">
-    <h3 className="font-bold text-base mb-1 px-2">Reed Points</h3>
-    <ul className="space-y-2">
-      {sensorsWithStatus.map((sensor) => (
-        <li key={sensor.SENSORID} className="bg-white p-2 rounded shadow flex justify-between text-xs">
-          <p className="font-bold">{sensor.SENSORID}</p>
-          
-          <p className={`font-semibold ${
-            sensor.status === 'Active' ? 'text-green-500' :
-            sensor.status === 'Inactive' ? 'text-yellow-500' : 'text-red-500'
-          }`}>
-           {sensor.status}
-          </p>
-          {/* <p>Last Update: {new Date(sensor.TIMESTAMP).toLocaleString()}</p> */}
-        </li>
-      ))}
-    </ul>
-    </div>
+
+      {/* Scrollable body — flex-1 + min-h-0 is the canonical recipe for
+          letting an inner scroller shrink correctly inside a flex column. */}
+      <div className="flex-1 min-h-0 space-y-3 overflow-y-auto p-3">
+        <SectionCard title="Ambient Systems">
+          <ul className="space-y-1.5">
+            {AMBIENT_SYSTEMS.map(({ label, swatchClass }) => (
+              <li key={label} className="flex items-center gap-2.5">
+                <span
+                  className={`h-2.5 w-2.5 flex-shrink-0 rounded-sm shadow-sm ${swatchClass}`}
+                />
+                <span className="text-xs text-slate-700">{label}</span>
+              </li>
+            ))}
+          </ul>
+        </SectionCard>
+
+        <SectionCard title="Users">
+          <ul className="space-y-1.5">
+            {USER_TYPES.map(({ label, ringClass, dotClass }) => (
+              <li key={label} className="flex items-center gap-2.5">
+                <span
+                  className={`flex-shrink-0 rounded-full p-1 ${ringClass}`}
+                >
+                  <span className={`block h-1.5 w-1.5 rounded-full ${dotClass}`} />
+                </span>
+                <span className="text-xs text-slate-700">{label}</span>
+              </li>
+            ))}
+          </ul>
+        </SectionCard>
+
+        <SectionCard
+          title="Reed Points"
+          icon={<Radio className="h-3.5 w-3.5" />}
+          bodyClassName=""
+        >
+          {/* Live count strip just under the header */}
+          <div className="flex items-center justify-between border-b border-slate-100 px-3 py-1.5 text-[11px] text-slate-500">
+            <span>{sensorsWithStatus.length} total</span>
+            <span className="inline-flex items-center gap-1 font-medium text-emerald-700">
+              <Activity className="h-3 w-3" />
+              {activeCount} active
+            </span>
+          </div>
+
+          {sensorsWithStatus.length === 0 ? (
+            <p className="px-3 py-4 text-xs text-slate-400">No sensors loaded.</p>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {sensorsWithStatus.map((sensor) => (
+                <li
+                  key={sensor.SENSORID}
+                  className="flex items-center justify-between gap-2 px-3 py-2 transition-colors hover:bg-slate-50"
+                >
+                  <span className="font-mono text-xs font-semibold text-slate-800">
+                    {sensor.SENSORID}
+                  </span>
+                  <StatusPill status={sensor.status} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </SectionCard>
+      </div>
     </div>
   )
 }

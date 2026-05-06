@@ -119,16 +119,15 @@ export default function BlockMap({ sensors, users, activeAreas, showSensors, deb
   )
 
   return (
-    <div>
+    <div className="w-full min-w-0">
       <div
-        className="relative"
+        className="relative w-full"
         style={{
-          width: '100%',
-          maxWidth: '1500px',
+          // Full width of the parent — no maxWidth cap. A fixed 1500px ceiling
+          // left empty space on wide screens (and the system dark-mode body
+          // background showed through as a black strip once the sidebar closed).
           height: '600px',
-          // Soft radial gradient behind the canvas — picks up at the canvas
-          // edges where the scene's solid background ends, framing the 3D
-          // viewport with a subtle "stage" rather than a hard rectangle.
+          // Soft radial gradient behind the canvas — stretches edge-to-edge.
           background:
             'radial-gradient(ellipse at 50% 35%, #f4f7fb 0%, #e2e8f0 70%, #cbd5e1 100%)',
         }}
