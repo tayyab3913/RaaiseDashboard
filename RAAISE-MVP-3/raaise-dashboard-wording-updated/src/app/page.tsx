@@ -125,87 +125,113 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="flex flex-col h-screen">
-      <div className="flex items-center justify-between p-4 bg-gray-900">
-        <div className="flex items-center gap-3">
-          {/* Hamburger / close — toggles the legend & sensors sidebar. Sits at
-              the top-left of the header; when the sidebar is open it shows an
-              X (so the same button reads as "close"), otherwise the three-line
-              menu icon. */}
-          <button
-            type="button"
-            onClick={() => setSidebarOpen((o) => !o)}
-            aria-label={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
-            aria-pressed={sidebarOpen}
-            title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
-            className="flex h-9 w-9 items-center justify-center rounded-md bg-gray-800 text-gray-100 transition-colors hover:bg-gray-700 hover:text-white focus:outline-none focus:ring-2 focus:ring-purple-500/60"
-          >
-            {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-          </button>
-          <h1 className="text-xl font-bold text-gray-100">Raaise Dashboard</h1>
-        </div>
-        <div className='flex items-center'>
-          <div className="flex mr-4">
-              <div className="text-sm text-white mr-2 font-bold">Auto Refresh:</div>
-              <select onChange={handleIntervalChange} value={fetchInterval / 1000} className="">
-                  <option value={1}>1 sec</option>
-                  <option value={2}>2 sec</option>
-                  <option value={5}>5 sec</option>
-                  <option value={10}>10 sec</option>
-                  <option value={30}>30 sec</option>
-                  <option value={60}>1 min</option>
-              </select>
+    <div className="flex h-screen min-h-0 flex-col overflow-hidden bg-slate-100">
+      {/* App header — same visual language as the sidebar: light surface,
+          slate borders, uppercase eyebrow + semibold title, pill controls. */}
+      <header className="flex-shrink-0 border-b border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setSidebarOpen((o) => !o)}
+              aria-label={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+              aria-pressed={sidebarOpen}
+              title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+              className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-700 transition-colors hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-500/40"
+            >
+              {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                Raaise
+              </p>
+              <h1 className="truncate text-base font-semibold text-slate-900 sm:text-lg">
+                Dashboard
+              </h1>
             </div>
-          <button 
-            onClick={fetchData} 
-            disabled={isLoading || debugMode}
-            style={{width:'150px'}}
-            className="bg-purple-700 hover:bg-purple-600 disabled:bg-purple-900 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded flex items-center justify-center mr-4"
-          >
-            <RefreshCw className="mr-2 h-4 w-4" />
-            {isLoading ? 'Refreshing...' : 'Refresh'}
-          </button>
+          </div>
 
-          <button
-            onClick={() => setDebugMode((d) => !d)}
-            style={{ width: '150px' }}
-            className={`${
-              debugMode
-                ? 'bg-amber-500 hover:bg-amber-400 text-gray-900'
-                : 'bg-gray-700 hover:bg-gray-600 text-white'
-            } font-bold py-2 px-4 rounded flex items-center justify-center mr-4`}
-            title="Avatars wander gradually inside the scene at a steady walking speed — used to test the movement + direction-change animations"
-          >
-            <Bug className="mr-2 h-4 w-4" />
-            {debugMode ? 'Debug: ON' : 'Debug: OFF'}
-          </button>
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 pl-3 shadow-sm">
+              <span className="whitespace-nowrap text-xs font-medium text-slate-600">
+                Auto refresh
+              </span>
+              <select
+                onChange={handleIntervalChange}
+                value={fetchInterval / 1000}
+                className="rounded-md border-0 bg-transparent py-0.5 text-sm font-medium text-slate-800 focus:outline-none focus:ring-0"
+              >
+                <option value={1}>1 s</option>
+                <option value={2}>2 s</option>
+                <option value={5}>5 s</option>
+                <option value={10}>10 s</option>
+                <option value={30}>30 s</option>
+                <option value={60}>1 min</option>
+              </select>
+            </label>
 
-          <button 
-            onClick={toggleSensors} 
-            style={{width:'150px'}}
-            className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded"
-          >
-            {showSensors ? 'Hide Sensors' : 'Show Sensors'}
-          </button>
+            <button
+              type="button"
+              onClick={fetchData}
+              disabled={isLoading || debugMode}
+              className="inline-flex min-w-[7.5rem] items-center justify-center gap-2 rounded-lg bg-violet-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+              {isLoading ? 'Refreshing…' : 'Refresh'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setDebugMode((d) => !d)}
+              title="Avatars wander inside the scene to test movement"
+              className={`inline-flex min-w-[7.5rem] items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-violet-500/40 ${
+                debugMode
+                  ? 'border border-amber-300 bg-amber-100 text-amber-900 hover:bg-amber-50'
+                  : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              <Bug className="h-4 w-4" />
+              {debugMode ? 'Debug on' : 'Debug off'}
+            </button>
+
+            <button
+              type="button"
+              onClick={toggleSensors}
+              className={`inline-flex min-w-[7.5rem] items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-violet-500/40 ${
+                showSensors
+                  ? 'border border-violet-300 bg-violet-50 text-violet-900 hover:bg-violet-100/80'
+                  : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              {showSensors ? 'Hide sensors' : 'Show sensors'}
+            </button>
+          </div>
         </div>
-      </div>
-      <div className="flex flex-1 overflow-hidden">
+      </header>
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* Sidebar — only mounted when open. Width matches the legacy
             proportions on lg+ so the map keeps its current size; on smaller
             screens the sidebar is hidden regardless (matches original
             behaviour, where only the map was visible on phones/tablets). */}
         {sidebarOpen && (
-          <aside className="hidden lg:block lg:w-3/12 xl:w-2/12 flex-shrink-0 overflow-hidden border-r border-slate-200">
+          <aside className="hidden min-h-0 lg:block lg:w-3/12 xl:w-2/12 flex-shrink-0 overflow-hidden border-r border-slate-200">
             <SensorList sensors={originalSensors} />
           </aside>
         )}
 
-        {/* Main content — flex-1 so it expands to fill whatever width the
-            sidebar leaves behind, including the full row when the sidebar
-            is closed. */}
-        <div className="flex-1 min-w-0 flex flex-col">
-          <BlockMap sensors={originalSensors} users={users} showSensors={showSensors} activeAreas={activeAreas} debugMode={debugMode} />
-          {/* Pass messages data as prop to DashboardMessages */}
+        {/* Main content — flex-1 + min-h-0 so the map column can shrink below
+            its content height; the 3D view then fills only the remaining
+            space instead of pushing the notifications panel off-screen. */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className="flex min-h-0 flex-1 flex-col">
+            <BlockMap
+              sensors={originalSensors}
+              users={users}
+              showSensors={showSensors}
+              activeAreas={activeAreas}
+              debugMode={debugMode}
+            />
+          </div>
           <DashboardMessages messages={messages} />
         </div>
       </div>

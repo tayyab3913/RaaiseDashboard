@@ -119,15 +119,13 @@ export default function BlockMap({ sensors, users, activeAreas, showSensors, deb
   )
 
   return (
-    <div className="w-full min-w-0">
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-col">
       <div
-        className="relative w-full"
+        className="relative min-h-0 flex-1 w-full"
         style={{
-          // Full width of the parent — no maxWidth cap. A fixed 1500px ceiling
-          // left empty space on wide screens (and the system dark-mode body
-          // background showed through as a black strip once the sidebar closed).
-          height: '600px',
-          // Soft radial gradient behind the canvas — stretches edge-to-edge.
+          // Height comes from flex-1 — fills space between header and
+          // notifications. A fixed pixel height broke the layout at 100%
+          // zoom (map + chrome exceeded the viewport and hid the alerts bar).
           background:
             'radial-gradient(ellipse at 50% 35%, #f4f7fb 0%, #e2e8f0 70%, #cbd5e1 100%)',
         }}
