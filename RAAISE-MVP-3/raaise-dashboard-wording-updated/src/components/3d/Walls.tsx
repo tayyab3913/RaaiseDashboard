@@ -20,6 +20,8 @@ type SegmentProps = {
 // itself for a subtle lipped/coping look.
 const TRIM_HEIGHT = 0.04
 const TRIM_OVERHANG = 1.15
+const OUTER_WALL_HEIGHT_MULTIPLIER = 1.2
+const BOUNDARY_EPS = 0.2
 
 function WallSegment({ from, to, height, thickness, color, opacity }: SegmentProps) {
   const [fx, fz] = from
@@ -81,15 +83,40 @@ export function Walls() {
       enabled?: boolean
     }
     if (enabled === false) return []
-    return polylines.flatMap(polyline =>
+
+    // Compute the world-space bounding box of all wall points once. Segments
+    // that run along this box are treated as outer/boundary walls.
+    const worldPts = polylines.flatMap((polyline) =>
+      polyline.points.map((pt) => pctToWorld(pt[0], pt[1]))
+    )
+    const xs = worldPts.map(([x]) => x)
+    const zs = worldPts.map(([, z]) => z)
+    const minX = Math.min(...xs)
+    const maxX = Math.max(...xs)
+    const minZ = Math.min(...zs)
+    const maxZ = Math.max(...zs)
+    const near = (a: number, b: number) => Math.abs(a - b) <= BOUNDARY_EPS
+
+    return polylines.flatMap((polyline) =>
       polyline.points.slice(0, -1).map((pt, i) => {
         const next = polyline.points[i + 1]
+        const from = pctToWorld(pt[0], pt[1])
+        const to = pctToWorld(next[0], next[1])
+        const [fx, fz] = from
+        const [tx, tz] = to
+
+        const isBoundarySegment =
+          (near(fx, minX) && near(tx, minX)) ||
+          (near(fx, maxX) && near(tx, maxX)) ||
+          (near(fz, minZ) && near(tz, minZ)) ||
+          (near(fz, maxZ) && near(tz, maxZ))
+
         return (
           <WallSegment
             key={`${polyline.id}-${i}`}
-            from={pctToWorld(pt[0], pt[1])}
-            to={pctToWorld(next[0], next[1])}
-            height={height}
+            from={from}
+            to={to}
+            height={isBoundarySegment ? height * OUTER_WALL_HEIGHT_MULTIPLIER : height}
             thickness={thickness}
             color={color}
             opacity={opacity}
