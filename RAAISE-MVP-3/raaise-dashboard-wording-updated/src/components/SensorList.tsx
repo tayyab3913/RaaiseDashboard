@@ -34,7 +34,7 @@ const USER_TYPES: {
 }[] = [
   { label: 'Authorized User', ringClass: 'bg-blue-200', dotClass: 'bg-blue-500' },
   { label: 'Unauthorized User', ringClass: 'bg-pink-200', dotClass: 'bg-pink-500' },
-  { label: 'Intruder', ringClass: 'bg-red-200', dotClass: 'bg-red-500' },
+  { label: 'Intruder', ringClass: 'bg-teal-200', dotClass: 'bg-teal-500' },
   { label: 'Unknown', ringClass: 'bg-gray-200', dotClass: 'bg-gray-500' },
 ]
 
