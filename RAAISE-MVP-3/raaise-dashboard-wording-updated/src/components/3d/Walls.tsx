@@ -20,7 +20,7 @@ type SegmentProps = {
 // itself for a subtle lipped/coping look.
 const TRIM_HEIGHT = 0.04
 const TRIM_OVERHANG = 1.15
-const OUTER_WALL_HEIGHT_MULTIPLIER = 1.2
+const OUTER_WALL_HEIGHT_MULTIPLIER = 1.1
 const BOUNDARY_EPS = 0.2
 
 function WallSegment({ from, to, height, thickness, color, opacity }: SegmentProps) {

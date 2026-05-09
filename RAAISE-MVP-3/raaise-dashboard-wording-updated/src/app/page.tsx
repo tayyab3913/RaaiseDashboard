@@ -115,6 +115,22 @@ export default function DashboardPage() {
     return () => clearInterval(id)
   }, [debugMode])
 
+  // Inject mock notifications when debug mode is active so the notifications
+  // panel UI can be previewed without live data.
+  useEffect(() => {
+    if (!debugMode) {
+      setMessages([])
+      return
+    }
+    const now = () => new Date().toISOString()
+    setMessages([
+      { id: 1, Message: '[DEBUG] Unauthorised access attempt detected at Entry A — Zone 3', Counter: 99999, Priority: 4, Timestamp: now() },
+      { id: 2, Message: '[DEBUG] Fingerprint mismatch on sensor FPR-02 — user badge not recognised', Counter: 99999, Priority: 3, Timestamp: now() },
+      { id: 3, Message: '[DEBUG] Motion detected in unoccupied corridor C04 after hours', Counter: 99999, Priority: 2, Timestamp: now() },
+      { id: 4, Message: '[DEBUG] System heartbeat OK — all sensors reporting normally', Counter: 99999, Priority: 1, Timestamp: now() },
+    ])
+  }, [debugMode])
+
   const toggleSensors = () => {
     setShowSensors(!showSensors)
   }
