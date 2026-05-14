@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Bell, Inbox } from 'lucide-react'
+import { Bell, ChevronDown, ChevronUp, Inbox } from 'lucide-react'
 
 type Message = {
   id: number
@@ -37,7 +37,7 @@ function priorityLabel(p: number): string {
   }
 }
 
-export default function DashboardMessages({ messages }: { messages: Message[] }) {
+export default function DashboardMessages({ messages, open = true, onToggle }: { messages: Message[]; open?: boolean; onToggle?: () => void }) {
   const [displayMessages, setDisplayMessages] = useState<MessageWithStatus[]>([])
 
   useEffect(() => {
@@ -63,19 +63,28 @@ export default function DashboardMessages({ messages }: { messages: Message[] })
   return (
     <div className="w-full min-w-0 flex-shrink-0 border-t border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100 px-3 py-2">
       <section className="mx-auto max-w-[1800px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        <header className="flex items-center gap-2 border-b border-slate-100 bg-slate-50/80 px-3 py-2">
+        <header className="flex items-center gap-2 bg-slate-50/80 px-3 py-2 border-b border-slate-100">
           <Bell className="h-3.5 w-3.5 text-slate-500" aria-hidden />
           <h3 className="text-[11px] font-semibold uppercase tracking-wider text-slate-700">
             Notifications / Alerts
           </h3>
           {displayMessages.length > 0 && (
-            <span className="ml-auto inline-flex rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-800 ring-1 ring-violet-200">
+            <span className="inline-flex rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-800 ring-1 ring-violet-200">
               {displayMessages.length} active
             </span>
           )}
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-label={open ? 'Hide notifications' : 'Show notifications'}
+            aria-pressed={open}
+            className="ml-auto flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-violet-500/40"
+          >
+            {open ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+          </button>
         </header>
 
-        <div className="max-h-[min(12rem,30vh)] overflow-y-auto">
+        {open && <div className="max-h-[min(12rem,30vh)] overflow-y-auto">
           {displayMessages.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-1.5 px-4 py-6 text-center sm:py-7">
               <Inbox className="h-8 w-8 text-slate-300 sm:h-9 sm:w-9" aria-hidden />
@@ -102,7 +111,7 @@ export default function DashboardMessages({ messages }: { messages: Message[] })
               })}
             </ul>
           )}
-        </div>
+        </div>}
       </section>
     </div>
   )

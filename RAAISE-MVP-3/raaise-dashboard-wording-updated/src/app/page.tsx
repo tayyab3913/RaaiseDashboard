@@ -48,6 +48,7 @@ export default function DashboardPage() {
   // header toggles it; when closed the map area expands to fill the full
   // available width.
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(true)
+  const [notificationsOpen, setNotificationsOpen] = useState<boolean>(true)
 
   const fetchData = async () => {
     setIsLoading(true)
@@ -248,7 +249,7 @@ export default function DashboardPage() {
               debugMode={debugMode}
             />
           </div>
-          <DashboardMessages messages={messages} />
+          <DashboardMessages messages={messages} open={notificationsOpen} onToggle={() => setNotificationsOpen((o) => !o)} />
         </div>
       </div>
     </div>
