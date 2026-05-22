@@ -25,7 +25,7 @@ docker run --name raaise-mysql -e MYSQL_ROOT_PASSWORD=raaise -e MYSQL_DATABASE=r
 Then wait 20 seconds and import the dump (one-time only):
 
 ```powershell
-cd "e:\Official Github Repositories\RAAISE-MVP-3\RAAISE-MVP-3"
+cd "e:\Official Github Repositories\Raaise Dashboard\RAAISE-MVP-3"
 Get-Content raaise_dump.sql | docker exec -i raaise-mysql mysql -uroot -praaise raaise
 ```
 
@@ -36,7 +36,7 @@ Get-Content raaise_dump.sql | docker exec -i raaise-mysql mysql -uroot -praaise 
 Timestamps in the DB age out after 30 minutes. Always run this after starting MySQL:
 
 ```powershell
-cd "e:\Official Github Repositories\RAAISE-MVP-3\RAAISE-MVP-3"
+cd "e:\Official Github Repositories\Raaise Dashboard\RAAISE-MVP-3"
 Get-Content refresh_data.sql | docker exec -i raaise-mysql mysql -uroot -praaise raaise
 ```
 
@@ -47,7 +47,7 @@ You should see output ending with rows for `User_Location_Pred`, `Sensor_Status`
 ## Step 4 — Start the dashboard (PowerShell)
 
 ```powershell
-cd "e:\Official Github Repositories\RAAISE-MVP-3\RAAISE-MVP-3\raaise-dashboard-wording-updated"
+cd "e:\Official Github Repositories\Raaise Dashboard\RAAISE-MVP-3\raaise-dashboard-wording-updated"
 npm run dev
 ```
 
@@ -62,7 +62,7 @@ Open **http://localhost:3000**
 Data ages out every ~30 minutes. Run this any time to refresh it:
 
 ```powershell
-cd "e:\Official Github Repositories\RAAISE-MVP-3\RAAISE-MVP-3"
+cd "e:\Official Github Repositories\Raaise Dashboard\RAAISE-MVP-3"
 Get-Content refresh_data.sql | docker exec -i raaise-mysql mysql -uroot -praaise raaise
 ```
 
@@ -78,7 +78,7 @@ In the terminal where `npm run dev` is running:
 2. Run again:
 
 ```powershell
-cd "e:\Official Github Repositories\RAAISE-MVP-3\RAAISE-MVP-3\raaise-dashboard-wording-updated"
+cd "e:\Official Github Repositories\Raaise Dashboard\RAAISE-MVP-3\raaise-dashboard-wording-updated"
 npm run dev
 ```
 
