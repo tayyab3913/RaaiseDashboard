@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useMemo, useRef } from 'react'
+import { MutableRefObject, Suspense, useMemo, useRef } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { ContactShadows } from '@react-three/drei'
 import { ACESFilmicToneMapping, PCFSoftShadowMap, Vector3 } from 'three'
@@ -62,10 +62,10 @@ const FOLLOW_TOP_SCALE = 0.22     // fraction of floor-plan used for TOP altitud
 //                   lerp smoothly so entering/leaving follow is never a jump.
 function CameraController({
   direction,
-  followPosition,
+  followPositionRef,
 }: {
   direction: CameraDirection
-  followPosition?: [number, number, number]
+  followPositionRef?: MutableRefObject<Vector3 | null>
 }) {
   // Reuse these vectors every frame — avoids per-frame heap allocations.
   const lookRef      = useRef(new Vector3(0, 0, 0))
@@ -79,20 +79,22 @@ function CameraController({
     const cam = state.camera
     const t = 1 - Math.pow(0.001, delta)
 
+    const fp = followPositionRef?.current ?? null
+
     // Lerp the orbit/look centre toward the followed avatar (or back to origin).
     targetLookRef.current.set(
-      followPosition ? followPosition[0] : 0,
+      fp ? fp.x : 0,
       0,
-      followPosition ? followPosition[2] : 0
+      fp ? fp.z : 0
     )
     lookRef.current.lerp(targetLookRef.current, t)
     const lx = lookRef.current.x
     const lz = lookRef.current.z
 
     // Lerp orbit parameters so mode transitions are smooth.
-    const wantRadius   = followPosition ? FOLLOW_ORBIT_RADIUS : ORBIT_RADIUS
-    const wantY        = followPosition ? FOLLOW_ORBIT_Y      : ORBIT_Y
-    const wantTopScale = followPosition ? FOLLOW_TOP_SCALE    : 1.0
+    const wantRadius   = fp ? FOLLOW_ORBIT_RADIUS : ORBIT_RADIUS
+    const wantY        = fp ? FOLLOW_ORBIT_Y      : ORBIT_Y
+    const wantTopScale = fp ? FOLLOW_TOP_SCALE    : 1.0
     orbitRadiusRef.current += (wantRadius   - orbitRadiusRef.current) * t
     orbitYRef.current      += (wantY        - orbitYRef.current)      * t
     topScaleRef.current    += (wantTopScale - topScaleRef.current)    * t
@@ -172,13 +174,10 @@ export default function Scene({
   selectedUserId = null,
   onSelectUser,
 }: Props) {
-  // Derive the world position to orbit when a user is being followed.
-  const followPosition = useMemo<[number, number, number] | undefined>(() => {
-    if (!selectedUserId) return undefined
-    const user = users.find(u => u.USERID === selectedUserId)
-    if (!user) return undefined
-    return locationToVector3(user.PREDICTED_LOCATION)
-  }, [selectedUserId, users])
+  // Written by the selected AvatarMesh every frame so the camera tracks the
+  // avatar's actual rendered position — not the static sensor location. This
+  // matters in debug-wander mode where the two diverge.
+  const followPosRef = useRef<Vector3 | null>(null)
 
   const locationGroups = useMemo(() => {
     const groups = new Map<string, UserFor3D[]>()
@@ -259,7 +258,7 @@ export default function Scene({
           white-washed. Three's built-in PCFSoftShadowMap (enabled on the
           Canvas above) gives soft enough edges for our top-down view. */}
 
-      <CameraController direction={cameraDirection} followPosition={followPosition} />
+      <CameraController direction={cameraDirection} followPositionRef={selectedUserId ? followPosRef : undefined} />
 
       <Suspense fallback={null}>
         <Ground />
@@ -304,6 +303,7 @@ export default function Scene({
               targetPosition={[bx + ox, 0, bz + oz]}
               debugMode={debugMode}
               isSelected={user.USERID === selectedUserId}
+              followPosRef={user.USERID === selectedUserId ? followPosRef : undefined}
               onSelect={() => onSelectUser?.(
                 user.USERID === selectedUserId ? null : user.USERID
               )}

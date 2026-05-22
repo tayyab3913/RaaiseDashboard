@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { MutableRefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Html } from '@react-three/drei'
 import { Vector3, Group, Mesh, MeshStandardMaterial, DoubleSide } from 'three'
@@ -195,6 +195,7 @@ type Props = {
   targetPosition: [number, number, number]
   debugMode?: boolean
   isSelected?: boolean
+  followPosRef?: MutableRefObject<Vector3 | null>
   onSelect?: () => void
 }
 
@@ -248,7 +249,7 @@ function wrapAngle(a: number): number {
   return a
 }
 
-export function AvatarMesh({ user, targetPosition, debugMode = false, isSelected = false, onSelect }: Props) {
+export function AvatarMesh({ user, targetPosition, debugMode = false, isSelected = false, followPosRef, onSelect }: Props) {
   const groupRef = useRef<Group>(null)
   const ringMeshRef = useRef<Mesh>(null)
   const selRingRef = useRef<Mesh>(null)
@@ -433,6 +434,9 @@ export function AvatarMesh({ user, targetPosition, debugMode = false, isSelected
         groupRef.current.position.copy(posRef.current)
       }
     }
+
+    // Keep the camera ref in sync with the avatar's actual rendered position.
+    if (followPosRef) followPosRef.current = posRef.current
 
     // ===== Walk cycle (common to both modes) ===========================
     const speed =
