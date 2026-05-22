@@ -257,6 +257,14 @@ export function AvatarMesh({ user, targetPosition, debugMode = false, isSelected
   const lastPosRef = useRef(new Vector3(...targetPosition))
   const [hovered, setHovered] = useState(false)
 
+  // Tooltip fade state. `tooltipMounted` keeps the Html in the DOM during the
+  // fade-out; `tooltipVisible` drives CSS opacity so the transition actually
+  // plays. A close timer provides the hover-away window before it starts fading.
+  const [tooltipMounted,  setTooltipMounted]  = useState(false)
+  const [tooltipVisible,  setTooltipVisible]  = useState(false)
+  const closeTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const unmountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // Limb groups. The outer ref pivots the whole limb at the hip/shoulder.
   // The shin/forearm refs are NESTED inside their parent limb — they pivot
   // at the knee/elbow so we get real joint flex, not a rigid rotation.
@@ -566,12 +574,36 @@ export function AvatarMesh({ user, targetPosition, debugMode = false, isSelected
     return () => selRingMaterial.dispose()
   }, [selRingMaterial])
 
+  useEffect(() => () => {
+    if (closeTimerRef.current)   clearTimeout(closeTimerRef.current)
+    if (unmountTimerRef.current) clearTimeout(unmountTimerRef.current)
+  }, [])
+
   return (
     <group
       ref={groupRef}
       position={posRef.current.toArray() as [number, number, number]}
-      onPointerEnter={(e) => { e.stopPropagation(); setHovered(true); document.body.style.cursor = 'pointer' }}
-      onPointerLeave={() => { setHovered(false); document.body.style.cursor = 'auto' }}
+      onPointerEnter={(e) => {
+        e.stopPropagation()
+        setHovered(true)
+        document.body.style.cursor = 'pointer'
+        if (closeTimerRef.current)   clearTimeout(closeTimerRef.current)
+        if (unmountTimerRef.current) clearTimeout(unmountTimerRef.current)
+        setTooltipMounted(true)
+        // Mount first (opacity 0), then flip visible on the next frame so the
+        // CSS transition has a start state to animate from.
+        requestAnimationFrame(() => setTooltipVisible(true))
+      }}
+      onPointerLeave={() => {
+        setHovered(false)
+        document.body.style.cursor = 'auto'
+        // Small window before the panel starts closing so brief cursor
+        // exits don't cause a flicker.
+        closeTimerRef.current = setTimeout(() => {
+          setTooltipVisible(false)
+          unmountTimerRef.current = setTimeout(() => setTooltipMounted(false), 220)
+        }, 400)
+      }}
       onClick={(e) => { e.stopPropagation(); onSelect?.() }}
     >
       {/* Floor-ring role indicator — red = threat, blue = trusted user.
@@ -733,7 +765,7 @@ export function AvatarMesh({ user, targetPosition, debugMode = false, isSelected
         </Html>
       ) : null}
 
-      {hovered && (
+      {tooltipMounted && (
         <Html position={[0, LABEL_Y + 0.35, 0]} center zIndexRange={[20, 0]}>
           <div
             style={{
@@ -745,6 +777,8 @@ export function AvatarMesh({ user, targetPosition, debugMode = false, isSelected
               whiteSpace: 'nowrap',
               pointerEvents: 'none',
               boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+              opacity: tooltipVisible ? 1 : 0,
+              transition: 'opacity 0.2s ease',
             }}
           >
             <p style={{ fontWeight: 'bold', marginBottom: 2 }}>
