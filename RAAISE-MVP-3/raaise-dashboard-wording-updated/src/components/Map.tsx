@@ -53,6 +53,7 @@ export default function BlockMap({ sensors, users, activeAreas, showSensors, deb
   // Camera angle around the scene. 'S' matches the layout's default camera
   // position so users see the same view they always have on first load.
   const [cameraDirection, setCameraDirection] = useState<CameraDirection>('S')
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
 
   const updateStatus = useCallback(() => {
     const now = Date.now()
@@ -118,6 +119,16 @@ export default function BlockMap({ sensors, users, activeAreas, showSensors, deb
     [deduplicatedUsers, sensorsWithStatus]
   )
 
+  // Label shown in the follow indicator chip.
+  const followedLabel = useMemo(() => {
+    if (!selectedUserId) return null
+    const u = usersFor3D.find(f => f.USERID === selectedUserId)
+    if (!u) return selectedUserId
+    if (!u.IS_REGISTERED) return 'Intruder'
+    if (!u.authorized) return 'Unauthorized'
+    return `User-${u.USERID}`
+  }, [selectedUserId, usersFor3D])
+
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 flex-col">
       <div
@@ -139,6 +150,8 @@ export default function BlockMap({ sensors, users, activeAreas, showSensors, deb
             showSensors={showSensors}
             debugMode={debugMode}
             cameraDirection={cameraDirection}
+            selectedUserId={selectedUserId}
+            onSelectUser={setSelectedUserId}
           />
         </div>
 
@@ -166,6 +179,27 @@ export default function BlockMap({ sensors, users, activeAreas, showSensors, deb
           value={cameraDirection}
           onChange={setCameraDirection}
         />
+
+        {/* Follow indicator — visible only while a user is being tracked.
+            Shows the followed user's label and an × to stop following. */}
+        {followedLabel && (
+          <div
+            className="absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-amber-300 bg-amber-50/95 px-4 py-1.5 shadow-md backdrop-blur-sm"
+            style={{ pointerEvents: 'auto' }}
+          >
+            <span className="text-xs font-semibold text-amber-900">
+              Following: {followedLabel}
+            </span>
+            <button
+              type="button"
+              aria-label="Stop following"
+              onClick={() => setSelectedUserId(null)}
+              className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-200 text-amber-800 transition-colors hover:bg-amber-300"
+            >
+              ×
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

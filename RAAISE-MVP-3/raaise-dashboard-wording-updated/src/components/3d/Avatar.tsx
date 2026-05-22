@@ -179,6 +179,11 @@ const RING_INNER = H * 0.22
 const RING_OUTER = H * 0.28
 const RING_Y = 0.012  // just above floor — clears the white base ground
 
+// Selection ring — gold outer halo, rendered when this avatar is being followed.
+const SEL_RING_INNER = H * 0.34
+const SEL_RING_OUTER = H * 0.46
+const SEL_RING_Y = 0.008
+
 function resolveLabel(user: UserFor3D) {
   if (!user.IS_REGISTERED) return 'Intruder'
   if (!user.authorized) return 'Unauthorized'
@@ -189,6 +194,8 @@ type Props = {
   user: UserFor3D
   targetPosition: [number, number, number]
   debugMode?: boolean
+  isSelected?: boolean
+  onSelect?: () => void
 }
 
 // Walk-cycle tuning ---------------------------------------------------------
@@ -241,9 +248,10 @@ function wrapAngle(a: number): number {
   return a
 }
 
-export function AvatarMesh({ user, targetPosition, debugMode = false }: Props) {
+export function AvatarMesh({ user, targetPosition, debugMode = false, isSelected = false, onSelect }: Props) {
   const groupRef = useRef<Group>(null)
   const ringMeshRef = useRef<Mesh>(null)
+  const selRingRef = useRef<Mesh>(null)
   const posRef = useRef(new Vector3(...targetPosition))
   const lastPosRef = useRef(new Vector3(...targetPosition))
   const [hovered, setHovered] = useState(false)
@@ -481,6 +489,13 @@ export function AvatarMesh({ user, targetPosition, debugMode = false }: Props) {
         1 + Math.sin(state.clock.elapsedTime * Math.PI + pulsePhase) * 0.08
       ringMeshRef.current.scale.set(pulse, pulse, pulse)
     }
+
+    // ===== Selection ring pulse (faster, larger) ========================
+    if (selRingRef.current) {
+      const pulse =
+        1 + Math.sin(state.clock.elapsedTime * Math.PI * 2.4 + pulsePhase) * 0.14
+      selRingRef.current.scale.set(pulse, pulse, pulse)
+    }
   })
 
   const palette = resolveColor(user.status, user.IS_REGISTERED, user.authorized)
@@ -527,12 +542,33 @@ export function AvatarMesh({ user, targetPosition, debugMode = false }: Props) {
     return () => ringMaterial.dispose()
   }, [ringMaterial])
 
+  // Gold selection ring — only created when this avatar is being followed.
+  const selRingMaterial = useMemo(() => {
+    if (!isSelected) return null
+    return new MeshStandardMaterial({
+      color: '#fbbf24',
+      emissive: '#f59e0b',
+      emissiveIntensity: 1.6,
+      metalness: 0.1,
+      roughness: 0.3,
+      transparent: true,
+      opacity: 0.92,
+      side: DoubleSide,
+    })
+  }, [isSelected])
+
+  useEffect(() => {
+    if (!selRingMaterial) return
+    return () => selRingMaterial.dispose()
+  }, [selRingMaterial])
+
   return (
     <group
       ref={groupRef}
       position={posRef.current.toArray() as [number, number, number]}
-      onPointerEnter={() => setHovered(true)}
-      onPointerLeave={() => setHovered(false)}
+      onPointerEnter={(e) => { e.stopPropagation(); setHovered(true); document.body.style.cursor = 'pointer' }}
+      onPointerLeave={() => { setHovered(false); document.body.style.cursor = 'auto' }}
+      onClick={(e) => { e.stopPropagation(); onSelect?.() }}
     >
       {/* Floor-ring role indicator — red = threat, blue = trusted user.
           Pulses gently to draw attention without being distracting. */}
@@ -545,6 +581,19 @@ export function AvatarMesh({ user, targetPosition, debugMode = false }: Props) {
           renderOrder={1}
         >
           <ringGeometry args={[RING_INNER, RING_OUTER, 48]} />
+        </mesh>
+      )}
+
+      {/* Gold selection ring — shown only while this avatar is being followed. */}
+      {selRingMaterial && (
+        <mesh
+          ref={selRingRef}
+          position={[0, SEL_RING_Y, 0]}
+          rotation={[-Math.PI / 2, 0, 0]}
+          material={selRingMaterial}
+          renderOrder={2}
+        >
+          <ringGeometry args={[SEL_RING_INNER, SEL_RING_OUTER, 64]} />
         </mesh>
       )}
 

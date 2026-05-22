@@ -1,9 +1,9 @@
 'use client'
 
-import { Suspense, useMemo } from 'react'
+import { Suspense, useMemo, useRef } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { ContactShadows } from '@react-three/drei'
-import { ACESFilmicToneMapping, PCFSoftShadowMap } from 'three'
+import { ACESFilmicToneMapping, PCFSoftShadowMap, Vector3 } from 'three'
 import { Ground } from './Ground'
 import { Walls } from './Walls'
 import { Labels } from './Labels'
@@ -46,86 +46,109 @@ const DIR_AZIMUTH: Record<OrbitDirection, number> = {
 // frame around the floorplan instead of clipping the outer walls.
 const TOP_FIT_MARGIN = 1.1
 
+// Follow-camera orbit parameters — much tighter than the overview orbit so
+// the selected avatar fills a useful portion of the viewport.
+const FOLLOW_ORBIT_RADIUS = 3.5   // world units from the followed avatar
+const FOLLOW_ORBIT_Y = 4.2        // camera height while following
+const FOLLOW_TOP_SCALE = 0.22     // fraction of floor-plan used for TOP altitude
+
 // Smoothly orbits the camera to whichever direction is selected, OR lifts it
 // directly overhead for the TOP view.
-//   • Orbit modes:  fixed radius + height, true arc around origin so the
-//                   camera never cuts through the scene centre.
-//   • TOP mode:     position lerps to (0, altitude, 0); altitude is computed
-//                   from the canvas aspect ratio so the whole plane fits in
-//                   view; camera.up swings to (0, 0, -1) so the layout map
-//                   reads with north (image top) at the screen top, matching
-//                   the original 2D map orientation.
-//   • Returning from TOP, the camera direct-lerps onto the orbit ring before
-//     resuming arc orbit, so we never see a hard teleport.
-function CameraController({ direction }: { direction: CameraDirection }) {
+//   • Orbit modes:  fixed radius + height, true arc around the look-target so
+//                   the camera never cuts through the scene centre.
+//   • TOP mode:     position lerps above the look-target; altitude shrinks when
+//                   following a user so the avatar stays centred in view.
+//   • Follow mode:  all parameters (radius, height, look-target, top-scale)
+//                   lerp smoothly so entering/leaving follow is never a jump.
+function CameraController({
+  direction,
+  followPosition,
+}: {
+  direction: CameraDirection
+  followPosition?: [number, number, number]
+}) {
+  // Reuse these vectors every frame — avoids per-frame heap allocations.
+  const lookRef      = useRef(new Vector3(0, 0, 0))
+  const targetLookRef = useRef(new Vector3(0, 0, 0))
+  // Smoothly lerped orbit parameters so entering/leaving follow is gradual.
+  const orbitRadiusRef = useRef(ORBIT_RADIUS)
+  const orbitYRef      = useRef(ORBIT_Y)
+  const topScaleRef    = useRef(1.0)
+
   useFrame((state, delta) => {
     const cam = state.camera
     const t = 1 - Math.pow(0.001, delta)
 
+    // Lerp the orbit/look centre toward the followed avatar (or back to origin).
+    targetLookRef.current.set(
+      followPosition ? followPosition[0] : 0,
+      0,
+      followPosition ? followPosition[2] : 0
+    )
+    lookRef.current.lerp(targetLookRef.current, t)
+    const lx = lookRef.current.x
+    const lz = lookRef.current.z
+
+    // Lerp orbit parameters so mode transitions are smooth.
+    const wantRadius   = followPosition ? FOLLOW_ORBIT_RADIUS : ORBIT_RADIUS
+    const wantY        = followPosition ? FOLLOW_ORBIT_Y      : ORBIT_Y
+    const wantTopScale = followPosition ? FOLLOW_TOP_SCALE    : 1.0
+    orbitRadiusRef.current += (wantRadius   - orbitRadiusRef.current) * t
+    orbitYRef.current      += (wantY        - orbitYRef.current)      * t
+    topScaleRef.current    += (wantTopScale - topScaleRef.current)    * t
+    const curRadius   = orbitRadiusRef.current
+    const curY        = orbitYRef.current
+    const curTopScale = topScaleRef.current
+
     if (direction === 'TOP') {
-      // Altitude that fits both plane dimensions in view, accounting for
-      // current canvas aspect (vertical FOV is fixed; horizontal FOV depends
-      // on aspect). We need height >= planeH/2/tan AND height >=
-      // planeW/2/(aspect*tan); take the larger.
       const aspect = state.size.width / Math.max(state.size.height, 1)
       const fovRad = (fov * Math.PI) / 180
       const halfTan = Math.tan(fovRad / 2)
-      const altByH = (planeH / 2) / halfTan
-      const altByW = (planeW / 2) / (aspect * halfTan)
-      const targetY = Math.max(altByH, altByW) * TOP_FIT_MARGIN
+      const altByH = (planeH * curTopScale / 2) / halfTan
+      const altByW = (planeW * curTopScale / 2) / (aspect * halfTan)
+      const topTargetY = Math.max(altByH, altByW) * TOP_FIT_MARGIN
 
-      // Position lerp toward (0, targetY, 0). The 0.001 z keeps the up vector
-      // and view direction from being exactly collinear during the swing,
-      // which would otherwise cause lookAt to flip the orientation.
-      cam.position.x += (0 - cam.position.x) * t
-      cam.position.y += (targetY - cam.position.y) * t
-      cam.position.z += (0.001 - cam.position.z) * t
+      cam.position.x += (lx       - cam.position.x) * t
+      cam.position.y += (topTargetY - cam.position.y) * t
+      cam.position.z += (lz + 0.001 - cam.position.z) * t
 
-      // Up vector lerps toward -Z so map north (image top edge = world -Z)
-      // appears at screen top in the plan view.
-      cam.up.x += (0 - cam.up.x) * t
-      cam.up.y += (0 - cam.up.y) * t
+      cam.up.x += (0  - cam.up.x) * t
+      cam.up.y += (0  - cam.up.y) * t
       cam.up.z += (-1 - cam.up.z) * t
       cam.up.normalize()
     } else {
-      // Reset up to world up (smoothly, in case we just left TOP).
       cam.up.x += (0 - cam.up.x) * t
       cam.up.y += (1 - cam.up.y) * t
       cam.up.z += (0 - cam.up.z) * t
       cam.up.normalize()
 
       const targetAzimuth = DIR_AZIMUTH[direction]
-
-      // If the camera is already orbiting the scene at roughly the right
-      // height & radius, animate by interpolating azimuth (true arc). If it
-      // isn't (typically just left TOP mode), direct-lerp position into the
-      // orbit ring instead, otherwise the arc lerp would snap Y instantly.
-      const horizDist = Math.hypot(cam.position.x, cam.position.z)
+      const horizDist = Math.hypot(cam.position.x - lx, cam.position.z - lz)
       const onOrbit =
-        Math.abs(horizDist - ORBIT_RADIUS) < ORBIT_RADIUS * 0.15 &&
-        Math.abs(cam.position.y - ORBIT_Y) < ORBIT_Y * 0.2
+        Math.abs(horizDist - curRadius) < curRadius * 0.15 &&
+        Math.abs(cam.position.y - curY) < Math.max(curY * 0.2, 0.5)
 
       if (onOrbit) {
-        const currentAz = Math.atan2(cam.position.x, cam.position.z)
+        const currentAz = Math.atan2(cam.position.x - lx, cam.position.z - lz)
         let azDelta = targetAzimuth - currentAz
-        if (azDelta > Math.PI) azDelta -= 2 * Math.PI
+        if (azDelta > Math.PI)  azDelta -= 2 * Math.PI
         if (azDelta < -Math.PI) azDelta += 2 * Math.PI
         const newAz = currentAz + azDelta * t
         cam.position.set(
-          ORBIT_RADIUS * Math.sin(newAz),
-          ORBIT_Y,
-          ORBIT_RADIUS * Math.cos(newAz)
+          lx + curRadius * Math.sin(newAz),
+          curY,
+          lz + curRadius * Math.cos(newAz)
         )
       } else {
-        const targetX = ORBIT_RADIUS * Math.sin(targetAzimuth)
-        const targetZ = ORBIT_RADIUS * Math.cos(targetAzimuth)
+        const targetX = lx + curRadius * Math.sin(targetAzimuth)
+        const targetZ = lz + curRadius * Math.cos(targetAzimuth)
         cam.position.x += (targetX - cam.position.x) * t
-        cam.position.y += (ORBIT_Y - cam.position.y) * t
+        cam.position.y += (curY    - cam.position.y) * t
         cam.position.z += (targetZ - cam.position.z) * t
       }
     }
 
-    cam.lookAt(0, 0, 0)
+    cam.lookAt(lx, 0, lz)
   })
   return null
 }
@@ -136,6 +159,8 @@ type Props = {
   showSensors?: boolean
   debugMode?: boolean
   cameraDirection?: CameraDirection
+  selectedUserId?: string | null
+  onSelectUser?: (userId: string | null) => void
 }
 
 export default function Scene({
@@ -144,7 +169,17 @@ export default function Scene({
   showSensors = false,
   debugMode = false,
   cameraDirection = 'S',
+  selectedUserId = null,
+  onSelectUser,
 }: Props) {
+  // Derive the world position to orbit when a user is being followed.
+  const followPosition = useMemo<[number, number, number] | undefined>(() => {
+    if (!selectedUserId) return undefined
+    const user = users.find(u => u.USERID === selectedUserId)
+    if (!user) return undefined
+    return locationToVector3(user.PREDICTED_LOCATION)
+  }, [selectedUserId, users])
+
   const locationGroups = useMemo(() => {
     const groups = new Map<string, UserFor3D[]>()
     for (const user of users) {
@@ -224,7 +259,7 @@ export default function Scene({
           white-washed. Three's built-in PCFSoftShadowMap (enabled on the
           Canvas above) gives soft enough edges for our top-down view. */}
 
-      <CameraController direction={cameraDirection} />
+      <CameraController direction={cameraDirection} followPosition={followPosition} />
 
       <Suspense fallback={null}>
         <Ground />
@@ -244,6 +279,18 @@ export default function Scene({
           opacity={0.4}
         />
 
+        {/* Click-away plane — transparent, covers the whole floor so clicking
+            empty space deselects any followed user. Avatars stop propagation
+            so their own click fires instead of this one. */}
+        <mesh
+          position={[0, -0.02, 0]}
+          rotation={[-Math.PI / 2, 0, 0]}
+          onClick={() => onSelectUser?.(null)}
+        >
+          <planeGeometry args={[planeW + 20, planeH + 20]} />
+          <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+        </mesh>
+
         {users.map((user) => {
           const group = locationGroups.get(user.PREDICTED_LOCATION) ?? []
           const idx = group.indexOf(user)
@@ -256,6 +303,10 @@ export default function Scene({
               user={user}
               targetPosition={[bx + ox, 0, bz + oz]}
               debugMode={debugMode}
+              isSelected={user.USERID === selectedUserId}
+              onSelect={() => onSelectUser?.(
+                user.USERID === selectedUserId ? null : user.USERID
+              )}
             />
           )
         })}
