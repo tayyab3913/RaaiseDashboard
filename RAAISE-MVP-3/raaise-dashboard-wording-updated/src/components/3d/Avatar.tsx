@@ -252,7 +252,8 @@ function wrapAngle(a: number): number {
 export function AvatarMesh({ user, targetPosition, debugMode = false, isSelected = false, followPosRef, onSelect }: Props) {
   const groupRef = useRef<Group>(null)
   const ringMeshRef = useRef<Mesh>(null)
-  const selRingRef = useRef<Mesh>(null)
+  const selRingRef  = useRef<Mesh>(null)
+  const hitboxRef   = useRef<Mesh>(null)
   const posRef = useRef(new Vector3(...targetPosition))
   const lastPosRef = useRef(new Vector3(...targetPosition))
   const [hovered, setHovered] = useState(false)
@@ -309,7 +310,7 @@ export function AvatarMesh({ user, targetPosition, debugMode = false, isSelected
   useLayoutEffect(() => {
     if (!groupRef.current) return
     groupRef.current.traverse((obj) => {
-      if (obj instanceof Mesh && obj !== ringMeshRef.current) {
+      if (obj instanceof Mesh && obj !== ringMeshRef.current && obj !== hitboxRef.current) {
         obj.castShadow = true
         obj.receiveShadow = true
       }
@@ -606,6 +607,14 @@ export function AvatarMesh({ user, targetPosition, debugMode = false, isSelected
       }}
       onClick={(e) => { e.stopPropagation(); onSelect?.() }}
     >
+      {/* Invisible hitbox — a generous cylinder that makes the avatar easy to
+          hover and click regardless of camera angle or which body part the
+          cursor happens to be nearest. Excluded from shadows. */}
+      <mesh ref={hitboxRef} position={[0, H * 0.5, 0]}>
+        <cylinderGeometry args={[H * 0.4, H * 0.4, H * 1.1, 8]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+      </mesh>
+
       {/* Floor-ring role indicator — red = threat, blue = trusted user.
           Pulses gently to draw attention without being distracting. */}
       {ringMaterial && (
@@ -749,7 +758,7 @@ export function AvatarMesh({ user, targetPosition, debugMode = false, isSelected
           and full details stay accessible via the hover tooltip below.
           Hovering any avatar (including Intruders) also surfaces its label. */}
       {(user.IS_REGISTERED && user.authorized) || hovered ? (
-        <Html position={[0, LABEL_Y, 0]} center zIndexRange={[10, 0]}>
+        <Html position={[0, LABEL_Y, 0]} center zIndexRange={[10, 0]} style={{ pointerEvents: 'none' }}>
           <div
             style={{
               fontSize: 10,
@@ -766,7 +775,7 @@ export function AvatarMesh({ user, targetPosition, debugMode = false, isSelected
       ) : null}
 
       {tooltipMounted && (
-        <Html position={[0, LABEL_Y + 0.35, 0]} center zIndexRange={[20, 0]}>
+        <Html position={[0, LABEL_Y + 0.35, 0]} center zIndexRange={[20, 0]} style={{ pointerEvents: 'none' }}>
           <div
             style={{
               background: 'rgba(255,255,255,0.92)',
