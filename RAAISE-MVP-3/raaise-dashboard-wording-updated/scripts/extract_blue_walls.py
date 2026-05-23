@@ -48,13 +48,13 @@ RED_MIN          = 150  # red channel brightness floor
 RED_GREEN_MAX    = 120  # green must be subdued
 RED_BLUE_MAX     = 130  # blue must be subdued
 
-# --- Purple area thresholds -------------------------------------------------
-# Purple = both R and B elevated, G suppressed.
-PURPLE_R_MIN     = 120
-PURPLE_B_MIN     = 80
-PURPLE_R_MINUS_G = 55   # R significantly above G
-PURPLE_B_MINUS_G = 30   # B significantly above G
-PURPLE_RB_DIFF   = 100  # |R-B| must be small (distinguishes from pure red/blue)
+# --- Yellow area thresholds -------------------------------------------------
+# Yellow = R and G both elevated, B suppressed.
+YELLOW_R_MIN     = 180
+YELLOW_G_MIN     = 160
+YELLOW_B_MAX     = 100   # blue must be low
+YELLOW_R_MINUS_B = 100   # R well above B
+YELLOW_G_MINUS_B = 80    # G well above B
 
 # --- Run / band detection tuning --------------------------------------------
 MIN_RUN_PCT   = 3.0   # % of image width (≈30px on 1024-wide image)
@@ -62,9 +62,8 @@ GAP_TOL_PX    = 3     # tolerate small dropouts inside one hand-drawn stroke
 BAND_MERGE_PX = 4     # adjacent qualifying rows within this many px → same band
 MIN_FINAL_PCT = 1.5   # drop segments shorter than this (cleans up flecks)
 
-# --- Purple zone tuning -----------------------------------------------------
+# --- Ground zone tuning -----------------------------------------------------
 PURPLE_MIN_AREA_PCT = 0.3   # % of image area; smaller blobs are noise
-PURPLE_DILATE_PX    = 8     # dilation passes for closing small gaps in filled area
 # ----------------------------------------------------------------------------
 
 
@@ -95,16 +94,17 @@ def red_mask(img: np.ndarray) -> np.ndarray:
     )
 
 
-def purple_mask(img: np.ndarray) -> np.ndarray:
+def yellow_mask(img: np.ndarray) -> np.ndarray:
+    """Detect the yellow annotation used to mark ground zones."""
     r = img[..., 0].astype(int)
     g = img[..., 1].astype(int)
     b = img[..., 2].astype(int)
     return (
-        (r > PURPLE_R_MIN)
-        & (b > PURPLE_B_MIN)
-        & (r - g > PURPLE_R_MINUS_G)
-        & (b - g > PURPLE_B_MINUS_G)
-        & (np.abs(r - b) < PURPLE_RB_DIFF)
+        (r > YELLOW_R_MIN)
+        & (g > YELLOW_G_MIN)
+        & (b < YELLOW_B_MAX)
+        & (r - b > YELLOW_R_MINUS_B)
+        & (g - b > YELLOW_G_MINUS_B)
     )
 
 
@@ -234,49 +234,53 @@ def to_polylines(
 
 # ── Purple zone detection ─────────────────────────────────────────────────────
 
-def find_purple_zones(mask: np.ndarray, img_w: int, img_h: int) -> list[dict]:
-    """Return bounding-box zones for each distinct filled purple region."""
+def find_ground_zones(mask: np.ndarray, img_w: int, img_h: int) -> list[dict]:
+    """Return bounding-box zones for each visually distinct annotated region.
+
+    Uses pure-NumPy column-then-row projection so scipy is not required.
+    Algorithm:
+      1. Compute per-column pixel density; columns below MIN_COL_DENSITY are
+         treated as empty. This strips edge noise from walls/room borders that
+         bleed a few pixels of colour without being a true filled region.
+      2. Find contiguous column bands in the density-filtered signal.
+      3. Within each x-slab, project onto y-axis → find contiguous row bands.
+      4. Each (x-slab × y-band) pair that clears the area threshold is one zone.
+    """
     min_area_px = (PURPLE_MIN_AREA_PCT / 100.0) * img_w * img_h
+    # A column must contain at least this many annotation pixels to count.
+    # Sized at 8 % of image height so it rejects thin-strip noise (wall edges
+    # that pick up a few coloured pixels) while keeping solid filled areas.
+    min_col_density = max(10, int(0.08 * img_h))
+
+    # Allow up to a 2-pixel gap when merging columns/rows inside one blob
+    # (handles 1-px anti-aliasing dropouts inside a solid fill).
+    col_gap = 2
+    row_gap = max(4, int(0.01 * img_h))
+
     zones: list[dict] = []
 
-    try:
-        from scipy import ndimage  # type: ignore
+    # Step 1 — density-filtered column projection.
+    col_counts = mask.sum(axis=0)
+    col_has = col_counts >= min_col_density
+    col_runs = find_runs(col_has, gap_tol=col_gap)
 
-        # Close small gaps inside the hand-coloured area before labelling.
-        struct = np.ones((PURPLE_DILATE_PX * 2 + 1,
-                          PURPLE_DILATE_PX * 2 + 1), dtype=bool)
-        closed = ndimage.binary_closing(mask, structure=struct)
-        labeled, n = ndimage.label(closed)
+    for c_start, c_end in col_runs:
+        # Step 2 — within this x-slab, find contiguous row bands.
+        slab = mask[:, c_start:c_end + 1]
+        row_has = slab.any(axis=1)
+        row_runs = find_runs(row_has, gap_tol=row_gap)
 
-        for label_id in range(1, n + 1):
-            # Use original (non-dilated) mask to get true pixel extent.
-            region = (labeled == label_id) & mask
+        for r_start, r_end in row_runs:
+            region = mask[r_start:r_end + 1, c_start:c_end + 1]
             if region.sum() < min_area_px:
-                continue
-            rr = np.where(region.any(axis=1))[0]
-            cc = np.where(region.any(axis=0))[0]
-            if rr.size == 0 or cc.size == 0:
                 continue
             zones.append({
                 "id": f"pz-{len(zones):03d}",
                 "bounds": [
-                    [round(cc[0]  / img_w * 100, 2), round(rr[0]  / img_h * 100, 2)],
-                    [round(cc[-1] / img_w * 100, 2), round(rr[-1] / img_h * 100, 2)],
+                    [round(c_start / img_w * 100, 2), round(r_start / img_h * 100, 2)],
+                    [round(c_end   / img_w * 100, 2), round(r_end   / img_h * 100, 2)],
                 ],
             })
-
-    except ImportError:
-        # Fallback without scipy: one bounding box over all purple pixels.
-        rr, cc = np.where(mask)
-        if rr.size < min_area_px:
-            return []
-        zones.append({
-            "id": "pz-000",
-            "bounds": [
-                [round(cc.min() / img_w * 100, 2), round(rr.min() / img_h * 100, 2)],
-                [round(cc.max() / img_w * 100, 2), round(rr.max() / img_h * 100, 2)],
-            ],
-        })
 
     return zones
 
@@ -290,27 +294,22 @@ def main() -> None:
     min_run_h = max(6, int(MIN_RUN_PCT / 100.0 * w_img))
     min_run_v = max(6, int(MIN_RUN_PCT / 100.0 * h_img))
 
-    # ── Blue (normal) walls ──────────────────────────────────────────────────
-    b_mask = blue_mask(img)
-    bh = detect_axis(b_mask, "h", min_run_h)
-    bv = detect_axis(b_mask, "v", min_run_v)
-    blue_polys = to_polylines(bh, bv, w_img, h_img, prefix_h="h", prefix_v="v")
-
     # ── Red (perforated) walls ───────────────────────────────────────────────
     r_mask = red_mask(img)
     rh = detect_axis(r_mask, "h", min_run_h)
     rv = detect_axis(r_mask, "v", min_run_v)
     red_polys = to_polylines(rh, rv, w_img, h_img, prefix_h="rh", prefix_v="rv")
 
-    # ── Purple floor zones ───────────────────────────────────────────────────
-    p_mask = purple_mask(img)
-    purple_zones = find_purple_zones(p_mask, w_img, h_img)
+    # ── Yellow (ground zone annotation) → rendered as purple floor ──────────
+    p_mask = yellow_mask(img)
+    purple_zones = find_ground_zones(p_mask, w_img, h_img)
 
     # ── Write to JSON ─────────────────────────────────────────────────────────
     layout = json.loads(LAYOUT.read_text(encoding="utf-8"))
 
-    layout["walls"]["polylines"] = blue_polys
-    layout["walls"]["enabled"] = True
+    # NOTE: walls.polylines (blue) are NOT overwritten here so that any
+    # manually-tuned or previously-extracted blue-wall data is preserved.
+    # Re-run extract_blue_walls_only.py if you need to refresh blue walls.
 
     # Initialise perforatedWalls section if missing, then inject polylines.
     if "perforatedWalls" not in layout:
@@ -340,9 +339,8 @@ def main() -> None:
     LAYOUT.write_text(json.dumps(layout, indent=2), encoding="utf-8")
 
     print(
-        f"Blue  walls: {len(bh)}h + {len(bv)}v raw -> {len(blue_polys)} polylines\n"
         f"Red   walls: {len(rh)}h + {len(rv)}v raw -> {len(red_polys)} polylines\n"
-        f"Purple zones: {len(purple_zones)}\n"
+        f"Ground zones: {len(purple_zones)}\n"
         f"Written -> {LAYOUT.name}"
     )
 
