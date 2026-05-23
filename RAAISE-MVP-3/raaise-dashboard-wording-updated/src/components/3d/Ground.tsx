@@ -11,9 +11,18 @@ import {
   LinearMipmapLinearFilter,
   RGBAFormat,
 } from 'three'
+import { pctToWorld } from '@/lib/coordMapper'
 import layout from '@/config/layouts/default-layout.json'
 
 const { width, height } = layout.plane
+
+// Purple zone config cast from the JSON (may not exist in older builds).
+const purpleZonesConfig = (layout as Record<string, unknown>).purpleGroundZones as {
+  enabled: boolean
+  color: string
+  opacity: number
+  zones: Array<{ id: string; bounds: [[number, number], [number, number]] }>
+} | undefined
 
 // Roughly 1 world unit per checkerboard cell. The plane's width/height in
 // world units divided by 2 (each "tile" of the 2×2 source is 2 cells) gives
@@ -60,6 +69,22 @@ export function Ground() {
     texture.needsUpdate = true
   }, [texture, maxAnisotropy])
 
+  // Convert each purple zone's bounding box from percentage coords to a
+  // centred world-space position + size so we can place a coloured plane.
+  const purpleZoneMeshes = useMemo(() => {
+    if (!purpleZonesConfig?.enabled) return []
+    const { color, opacity, zones } = purpleZonesConfig
+    return zones.map((zone) => {
+      const [x0w, z0w] = pctToWorld(zone.bounds[0][0], zone.bounds[0][1])
+      const [x1w, z1w] = pctToWorld(zone.bounds[1][0], zone.bounds[1][1])
+      const zoneW = Math.abs(x1w - x0w)
+      const zoneH = Math.abs(z1w - z0w)
+      const posX  = (x0w + x1w) / 2
+      const posZ  = (z0w + z1w) / 2
+      return { id: zone.id, posX, posZ, zoneW, zoneH, color, opacity }
+    })
+  }, [])
+
   return (
     <>
       {/* White base ground with a barely-visible checker. Sits BELOW the
@@ -89,6 +114,28 @@ export function Ground() {
         <planeGeometry args={[width, height]} />
         <meshStandardMaterial map={texture} roughness={0.9} metalness={0.05} />
       </mesh>
+
+      {/* Purple coloured floor zones — sit between the floorplan texture and
+          the walls (y=0.015). Semi-transparent so the underlying layout map
+          remains partially visible, giving spatial context. */}
+      {purpleZoneMeshes.map(({ id, posX, posZ, zoneW, zoneH, color, opacity }) => (
+        <mesh
+          key={id}
+          rotation={[-Math.PI / 2, 0, 0]}
+          position={[posX, 0.015, posZ]}
+          renderOrder={1}
+        >
+          <planeGeometry args={[zoneW, zoneH]} />
+          <meshStandardMaterial
+            color={color}
+            transparent
+            opacity={opacity}
+            roughness={0.8}
+            metalness={0.0}
+            depthWrite={false}
+          />
+        </mesh>
+      ))}
     </>
   )
 }

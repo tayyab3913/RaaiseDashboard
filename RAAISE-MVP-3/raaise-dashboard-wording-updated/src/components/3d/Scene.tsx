@@ -6,6 +6,7 @@ import { ContactShadows } from '@react-three/drei'
 import { ACESFilmicToneMapping, PCFSoftShadowMap, Vector3 } from 'three'
 import { Ground } from './Ground'
 import { Walls } from './Walls'
+import { PerforatedWalls } from './PerforatedWalls'
 import { Labels } from './Labels'
 import { AvatarMesh, UserFor3D } from './Avatar'
 import { Sensors } from './Sensors'
@@ -263,6 +264,7 @@ export default function Scene({
       <Suspense fallback={null}>
         <Ground />
         <Walls />
+        <PerforatedWalls />
         <Labels />
         {showSensors && sensors && <Sensors sensors={sensors} />}
 
