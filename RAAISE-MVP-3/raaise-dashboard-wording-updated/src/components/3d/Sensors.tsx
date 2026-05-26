@@ -155,9 +155,56 @@ function SensorHead({
   }
 }
 
+// Full display name and pill colours for each sensor type prefix.
+// The bg/text/shadow values produce a lightly-tinted pill that harmonises
+// with the pylon head colour visible in the 3D scene.
+const TYPE_META: Record<string, {
+  label: string
+  bg: string; text: string; ring: string
+}> = {
+  NF: { label: 'NFC Access',       bg: '#f7fee7', text: '#3f6212', ring: '#bef264' },
+  RF: { label: 'RFID Track & Trace', bg: '#ecfeff', text: '#155e75', ring: '#67e8f9' },
+  FP: { label: 'Fingerprint AC',   bg: '#fff7ed', text: '#9a3412', ring: '#fdba74' },
+  PS: { label: 'Motion / PIR',     bg: '#fdf2f8', text: '#9d174d', ring: '#f9a8d4' },
+  CC: { label: 'CCTV',             bg: '#fefce8', text: '#713f12', ring: '#fde047' },
+  WP: { label: 'WiFi Positioning', bg: '#f9fafb', text: '#374151', ring: '#d1d5db' },
+}
+
+// Renders a Yes/No capability chip.
+function CapChip({ label, value }: { label: string; value: string }) {
+  const yes = value?.toLowerCase() === 'yes' || value?.toLowerCase() === 'true'
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+      <span style={{
+        fontSize: 9,
+        fontWeight: 700,
+        textTransform: 'uppercase' as const,
+        letterSpacing: '0.09em',
+        color: '#94a3b8',
+        flexShrink: 0,
+      }}>
+        {label}
+      </span>
+      <span style={{
+        fontSize: 9,
+        fontWeight: 700,
+        textTransform: 'uppercase' as const,
+        letterSpacing: '0.06em',
+        padding: '2px 7px',
+        borderRadius: 999,
+        ...(yes
+          ? { background: '#ecfdf5', color: '#047857', boxShadow: 'inset 0 0 0 1px #a7f3d0' }
+          : { background: '#f8fafc', color: '#94a3b8', boxShadow: 'inset 0 0 0 1px #e2e8f0' }),
+      }}>
+        {yes ? 'Yes' : 'No'}
+      </span>
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Single sensor pylon (base + pole + type-specific head). Hover surfaces a
-// drei <Html> tooltip with the same fields the legacy 2D popup showed.
+// drei <Html> tooltip styled to match the app's design system.
 // ---------------------------------------------------------------------------
 function SensorMarker({
   sensor,
@@ -166,21 +213,25 @@ function SensorMarker({
   sensor: SensorWithStatus
   position: [number, number, number]
 }) {
-  const [hovered, setHovered] = useState(false)
-  const type = sensorTypeOf(sensor.SENSORID)
+  const [tooltipMounted,  setTooltipMounted]  = useState(false)
+  const [tooltipVisible,  setTooltipVisible]  = useState(false)
+  const type   = sensorTypeOf(sensor.SENSORID)
   const visual = sensorVisual(type, sensor.status)
+  const meta   = TYPE_META[type] ?? TYPE_META['WP']
 
   return (
     <group
       position={position}
       onPointerOver={(e) => {
         e.stopPropagation()
-        setHovered(true)
         document.body.style.cursor = 'pointer'
+        setTooltipMounted(true)
+        requestAnimationFrame(() => setTooltipVisible(true))
       }}
       onPointerOut={() => {
-        setHovered(false)
         document.body.style.cursor = 'auto'
+        setTooltipVisible(false)
+        setTimeout(() => setTooltipMounted(false), 200)
       }}
     >
       {/* Base puck — dark brushed metal */}
@@ -200,29 +251,115 @@ function SensorMarker({
         <SensorHead type={type} visual={visual} />
       </group>
 
-      {/* Hover tooltip — same fields as the legacy 2D overlay */}
-      {hovered && (
-        <Html position={[0, HEAD_Y + 0.20, 0]} center zIndexRange={[20, 0]}>
-          <div
-            style={{
-              background: 'rgba(255,255,255,0.95)',
-              border: '1px solid #d1d5db',
-              borderRadius: 4,
-              padding: '6px 10px',
-              fontSize: 11,
-              whiteSpace: 'nowrap',
-              pointerEvents: 'none',
-              boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
-            }}
-          >
-            <p style={{ fontWeight: 'bold', marginBottom: 2 }}>
-              Sensor: {sensor.SENSORID}
-            </p>
-            <p>Location: {sensor.LOCATION}</p>
-            <p>Status: {sensor.status}</p>
-            <p>Control Access: {sensor.CONTROL_ACCESS}</p>
-            <p>Can Authenticate: {sensor.CAN_AUTHENTICATE}</p>
-            <p>Entry and Exit: {sensor.ENTRY_AND_EXIT}</p>
+      {/* Hover tooltip */}
+      {tooltipMounted && (
+        <Html position={[0, HEAD_Y + 0.26, 0]} center zIndexRange={[20, 0]} style={{ pointerEvents: 'none' }}>
+          <div style={{
+            width: 210,
+            background: '#ffffff',
+            border: '1px solid #e2e8f0',
+            borderRadius: 12,
+            boxShadow: '0 8px 24px rgba(15,23,42,0.14), 0 2px 6px rgba(15,23,42,0.08)',
+            overflow: 'hidden',
+            pointerEvents: 'none',
+            fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
+            opacity: tooltipVisible ? 1 : 0,
+            transform: tooltipVisible ? 'translateY(0) scale(1)' : 'translateY(6px) scale(0.96)',
+            transition: 'opacity 0.18s ease, transform 0.18s ease',
+            userSelect: 'none',
+          }}>
+
+            {/* ── Header: ID + status pill ── */}
+            <div style={{
+              background: 'rgba(248,250,252,0.95)',
+              borderBottom: '1px solid #f1f5f9',
+              padding: '8px 10px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 6,
+            }}>
+              <span style={{
+                fontSize: 12,
+                fontWeight: 700,
+                color: '#0f172a',
+                letterSpacing: '0.01em',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}>
+                {sensor.SENSORID}
+              </span>
+              <span style={{
+                fontSize: 9,
+                fontWeight: 700,
+                textTransform: 'uppercase' as const,
+                letterSpacing: '0.07em',
+                padding: '2px 7px',
+                borderRadius: 999,
+                flexShrink: 0,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 3,
+                ...(sensor.status === 'Active'
+                  ? { background: '#ecfdf5', color: '#047857', boxShadow: 'inset 0 0 0 1px #a7f3d0' }
+                  : sensor.status === 'Inactive'
+                  ? { background: '#fffbeb', color: '#b45309', boxShadow: 'inset 0 0 0 1px #fde68a' }
+                  : { background: '#f1f5f9', color: '#64748b', boxShadow: 'inset 0 0 0 1px #e2e8f0' }),
+              }}>
+                {sensor.status === 'Active' && (
+                  <span style={{
+                    display: 'inline-block',
+                    width: 5, height: 5,
+                    borderRadius: '50%',
+                    background: '#10b981',
+                    flexShrink: 0,
+                  }} />
+                )}
+                {sensor.status}
+              </span>
+            </div>
+
+            {/* ── Body ── */}
+            <div style={{ padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 7 }}>
+
+              {/* Type badge — color-matched to the pylon head */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                <span style={{
+                  fontSize: 9, fontWeight: 700,
+                  textTransform: 'uppercase' as const,
+                  letterSpacing: '0.09em', color: '#94a3b8', flexShrink: 0,
+                }}>Type</span>
+                <span style={{
+                  fontSize: 10, fontWeight: 600,
+                  padding: '2px 8px', borderRadius: 999,
+                  background: meta.bg, color: meta.text,
+                  boxShadow: `inset 0 0 0 1px ${meta.ring}`,
+                }}>
+                  {meta.label}
+                </span>
+              </div>
+
+              {/* Location */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                <span style={{
+                  fontSize: 9, fontWeight: 700,
+                  textTransform: 'uppercase' as const,
+                  letterSpacing: '0.09em', color: '#94a3b8', flexShrink: 0,
+                }}>Location</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#334155' }}>
+                  {sensor.LOCATION}
+                </span>
+              </div>
+
+              {/* Divider */}
+              <div style={{ borderTop: '1px solid #f1f5f9', margin: '0 -2px' }} />
+
+              {/* Capability chips */}
+              <CapChip label="Control Access"    value={sensor.CONTROL_ACCESS} />
+              <CapChip label="Can Authenticate"  value={sensor.CAN_AUTHENTICATE} />
+              <CapChip label="Entry & Exit"      value={sensor.ENTRY_AND_EXIT} />
+            </div>
           </div>
         </Html>
       )}

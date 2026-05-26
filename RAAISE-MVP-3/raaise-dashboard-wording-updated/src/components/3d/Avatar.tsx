@@ -775,26 +775,133 @@ export function AvatarMesh({ user, targetPosition, debugMode = false, isSelected
       ) : null}
 
       {tooltipMounted && (
-        <Html position={[0, LABEL_Y + 0.35, 0]} center zIndexRange={[20, 0]} style={{ pointerEvents: 'none' }}>
+        <Html position={[0, LABEL_Y + 0.42, 0]} center zIndexRange={[20, 0]} style={{ pointerEvents: 'none' }}>
           <div
             style={{
-              background: 'rgba(255,255,255,0.92)',
-              border: '1px solid #d1d5db',
-              borderRadius: 4,
-              padding: '4px 8px',
-              fontSize: 11,
-              whiteSpace: 'nowrap',
+              width: 196,
+              background: '#ffffff',
+              border: '1px solid #e2e8f0',
+              borderRadius: 12,
+              boxShadow: '0 8px 24px rgba(15,23,42,0.14), 0 2px 6px rgba(15,23,42,0.08)',
+              overflow: 'hidden',
               pointerEvents: 'none',
-              boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+              fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
               opacity: tooltipVisible ? 1 : 0,
-              transition: 'opacity 0.2s ease',
+              transform: tooltipVisible ? 'translateY(0) scale(1)' : 'translateY(6px) scale(0.96)',
+              transition: 'opacity 0.18s ease, transform 0.18s ease',
+              userSelect: 'none',
             }}
           >
-            <p style={{ fontWeight: 'bold', marginBottom: 2 }}>
-              {label}: {user.USERID}
-            </p>
-            <p>Location: {user.PREDICTED_LOCATION}</p>
-            <p>Status: {user.status}</p>
+            {/* ── Header ── */}
+            <div
+              style={{
+                background: 'rgba(248,250,252,0.95)',
+                borderBottom: '1px solid #f1f5f9',
+                padding: '8px 10px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 6,
+              }}
+            >
+              <span style={{
+                fontSize: 12,
+                fontWeight: 700,
+                color: '#0f172a',
+                letterSpacing: '0.01em',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}>
+                {user.USERID}
+              </span>
+              {/* Status pill — emerald / amber / slate */}
+              <span style={{
+                fontSize: 9,
+                fontWeight: 700,
+                textTransform: 'uppercase' as const,
+                letterSpacing: '0.07em',
+                padding: '2px 7px',
+                borderRadius: 999,
+                flexShrink: 0,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 3,
+                ...(user.status === 'Active'
+                  ? { background: '#ecfdf5', color: '#047857', boxShadow: 'inset 0 0 0 1px #a7f3d0' }
+                  : user.status === 'Inactive'
+                  ? { background: '#fffbeb', color: '#b45309', boxShadow: 'inset 0 0 0 1px #fde68a' }
+                  : { background: '#f1f5f9', color: '#64748b', boxShadow: 'inset 0 0 0 1px #e2e8f0' }),
+              }}>
+                {user.status === 'Active' && (
+                  <span style={{
+                    display: 'inline-block',
+                    width: 5, height: 5,
+                    borderRadius: '50%',
+                    background: '#10b981',
+                    flexShrink: 0,
+                  }} />
+                )}
+                {user.status}
+              </span>
+            </div>
+
+            {/* ── Body rows ── */}
+            <div style={{ padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 7 }}>
+              {/* Role */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                <span style={{
+                  fontSize: 9,
+                  fontWeight: 700,
+                  textTransform: 'uppercase' as const,
+                  letterSpacing: '0.09em',
+                  color: '#94a3b8',
+                  flexShrink: 0,
+                }}>
+                  Role
+                </span>
+                <span style={{
+                  fontSize: 10,
+                  fontWeight: 600,
+                  padding: '2px 8px',
+                  borderRadius: 999,
+                  ...(!user.IS_REGISTERED
+                    ? { background: '#fff1f2', color: '#be123c', boxShadow: 'inset 0 0 0 1px #fecdd3' }
+                    : !user.authorized
+                    ? { background: '#fff7ed', color: '#c2410c', boxShadow: 'inset 0 0 0 1px #fed7aa' }
+                    : { background: '#eff6ff', color: '#1d4ed8', boxShadow: 'inset 0 0 0 1px #bfdbfe' }),
+                }}>
+                  {!user.IS_REGISTERED ? 'Intruder' : !user.authorized ? 'Unauthorized' : 'Authorized'}
+                </span>
+              </div>
+
+              {/* Divider */}
+              <div style={{ borderTop: '1px solid #f1f5f9', margin: '0 -2px' }} />
+
+              {/* Location */}
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 6 }}>
+                <span style={{
+                  fontSize: 9,
+                  fontWeight: 700,
+                  textTransform: 'uppercase' as const,
+                  letterSpacing: '0.09em',
+                  color: '#94a3b8',
+                  flexShrink: 0,
+                  paddingTop: 1,
+                }}>
+                  Location
+                </span>
+                <span style={{
+                  fontSize: 10,
+                  fontWeight: 600,
+                  color: '#334155',
+                  textAlign: 'right',
+                  wordBreak: 'break-word' as const,
+                }}>
+                  {user.PREDICTED_LOCATION}
+                </span>
+              </div>
+            </div>
           </div>
         </Html>
       )}
