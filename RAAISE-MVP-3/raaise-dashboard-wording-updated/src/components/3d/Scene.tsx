@@ -7,6 +7,7 @@ import { ACESFilmicToneMapping, PCFSoftShadowMap, Vector3 } from 'three'
 import { Ground } from './Ground'
 import { Walls } from './Walls'
 import { PerforatedWalls } from './PerforatedWalls'
+import { Doors } from './Doors'
 import { Labels } from './Labels'
 import { AvatarMesh, UserFor3D } from './Avatar'
 import { Sensors } from './Sensors'
@@ -265,6 +266,7 @@ export default function Scene({
         <Ground />
         <Walls />
         <PerforatedWalls />
+        <Doors />
         <Labels />
         {showSensors && sensors && <Sensors sensors={sensors} />}
 
