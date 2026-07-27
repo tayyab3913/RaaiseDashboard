@@ -7,6 +7,7 @@ import {
   CameraDirectionPicker,
   type CameraDirection,
 } from '@/components/CameraDirectionPicker'
+import { PathTestPanel } from '@/components/PathTestPanel'
 import type { Sensor, SensorWithStatus } from '@/lib/sensors'
 
 const Scene3D = dynamic(() => import('@/components/3d/Scene'), { ssr: false })
@@ -22,6 +23,13 @@ type User = {
 type UserWithStatus = User & {
   status: 'Active' | 'Inactive' | 'Offline'
   lastUpdated: number
+  // Set the first tick a user is classified Offline; carried forward
+  // unchanged afterwards so the grace-period check below is stable.
+  offlineSince?: number
+  // Set once a stale-and-exit-adjacent user is confirmed as having left —
+  // starts the shrink-out animation. Carried forward until the fade finishes.
+  despawningSince?: number
+  despawning?: boolean
 }
 
 type MapProps = {
@@ -30,7 +38,28 @@ type MapProps = {
   activeAreas: string[]
   showSensors: boolean
   debugMode?: boolean
+  // Compresses the Active/Inactive/Offline/despawn timers ~10x. Used by the
+  // Path Test debug panel so the full lost-signal → reconnect → exit-despawn
+  // lifecycle can be watched in seconds instead of minutes.
+  fastTiming?: boolean
+  // Present only while the Path Test debug panel is open — renders it as an
+  // overlay on the map, in the same corner as the camera picker / follow chip.
+  pathTest?: {
+    locations: string[]
+    exitLocations: string[]
+    currentLocation: string
+    signalLost: boolean
+    onJump: (location: string) => void
+    onLoseSignal: () => void
+    onSimulateExit: () => void
+    onClose: () => void
+  }
 }
+
+// How long the shrink-out animation gets to play before a despawning user is
+// actually removed from state. Fixed regardless of fastTiming — it's a
+// visual tween duration, not a "have they really left" judgement call.
+const DESPAWN_FADE_MS = 1500
 
 const passageToArea: Record<string, string> = {
   'P12': 'A01', 'P51': 'A05', 'P45': 'A04', 'P15': 'A11', 'P64': 'A06',
@@ -47,7 +76,7 @@ function isAuthorized(user: UserWithStatus, sensors: SensorWithStatus[]): boolea
   return userLevel >= parseInt(sensor.SECURITY_LEVEL || '0', 10)
 }
 
-export default function BlockMap({ sensors, users, activeAreas, showSensors, debugMode = false }: MapProps) {
+export default function BlockMap({ sensors, users, activeAreas, showSensors, debugMode = false, fastTiming = false, pathTest }: MapProps) {
   const [sensorsWithStatus, setSensorsWithStatus] = useState<SensorWithStatus[]>([])
   const [usersWithStatus, setUsersWithStatus] = useState<UserWithStatus[]>([])
   // Camera angle around the scene. 'S' matches the layout's default camera
@@ -65,10 +94,25 @@ export default function BlockMap({ sensors, users, activeAreas, showSensors, deb
       return { ...sensor, status }
     }))
 
+    // fastTiming compresses these ~10x for the Path Test debug panel, so the
+    // full lost-signal → despawn lifecycle can be watched in seconds.
+    const ACTIVE_MS = fastTiming ? 6000 : 60000
+    const INACTIVE_MS = fastTiming ? 12000 : 120000
+    const DESPAWN_GRACE_MS = fastTiming ? 4000 : 15000
+
+    // Locations served by a sensor flagged as a building entry/exit point.
+    // A user last seen here who then goes stale is assumed to have actually
+    // left, rather than merely lost signal indoors.
+    const exitLocations = new Set(
+      sensors
+        .filter(s => (s.ENTRY_AND_EXIT || '').toUpperCase() === 'YES')
+        .map(s => s.LOCATION)
+    )
+
     const updated = users.map(user => {
       const diff = now - new Date(user.TIMESTAMP).getTime()
       const status: UserWithStatus['status'] =
-        diff <= 60000 ? 'Active' : diff <= 120000 ? 'Inactive' : 'Offline'
+        diff <= ACTIVE_MS ? 'Active' : diff <= INACTIVE_MS ? 'Inactive' : 'Offline'
       return { ...user, status, lastUpdated: now }
     })
 
@@ -77,10 +121,38 @@ export default function BlockMap({ sensors, users, activeAreas, showSensors, deb
         u.status !== 'Offline' &&
         !(u.USERID.includes('PS') && activeAreas.includes(u.PREDICTED_LOCATION))
       )
-      const offline = prev.filter(u => u.status === 'Offline')
+      const activeIds = new Set(active.map(u => u.USERID))
+
+      // Carry forward whichever entries were already Offline — this is what
+      // keeps a lost user frozen in place instead of despawning immediately.
+      // Exit-adjacent users graduate to "despawning" (shrink out) once the
+      // grace period elapses; everyone else stays frozen indefinitely, same
+      // as before.
+      const offline: UserWithStatus[] = []
+      for (const u of prev) {
+        if (u.status !== 'Offline') continue
+        if (activeIds.has(u.USERID)) continue // reconnected — fresh entry takes over
+
+        const offlineSince = u.offlineSince ?? now
+        const isExit = exitLocations.has(u.PREDICTED_LOCATION)
+        const shouldDespawn = u.despawningSince !== undefined || (isExit && now - offlineSince > DESPAWN_GRACE_MS)
+        const despawningSince = shouldDespawn ? (u.despawningSince ?? now) : undefined
+
+        if (despawningSince !== undefined && now - despawningSince > DESPAWN_FADE_MS) {
+          continue // shrink animation has had time to finish
+        }
+
+        offline.push({
+          ...u,
+          offlineSince,
+          despawningSince,
+          despawning: despawningSince !== undefined,
+        })
+      }
+
       return [...active, ...offline]
     })
-  }, [sensors, users, activeAreas])
+  }, [sensors, users, activeAreas, fastTiming])
 
   useEffect(() => {
     updateStatus()
@@ -115,6 +187,7 @@ export default function BlockMap({ sensors, users, activeAreas, showSensors, deb
       status: u.status,
       IS_REGISTERED: u.IS_REGISTERED,
       authorized: isAuthorized(u, sensorsWithStatus),
+      despawning: u.despawning === true,
     })),
     [deduplicatedUsers, sensorsWithStatus]
   )
@@ -179,6 +252,9 @@ export default function BlockMap({ sensors, users, activeAreas, showSensors, deb
           value={cameraDirection}
           onChange={setCameraDirection}
         />
+
+        {/* Path Test debug panel — only mounted while that mode is active. */}
+        {pathTest && <PathTestPanel {...pathTest} />}
 
         {/* Follow indicator — visible only while a user is being tracked.
             Shows the followed user's label and an × to stop following. */}

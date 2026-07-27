@@ -5,6 +5,7 @@ import { useFrame } from '@react-three/fiber'
 import { Html } from '@react-three/drei'
 import { Vector3, Group, Mesh, MeshStandardMaterial, DoubleSide } from 'three'
 import layout from '@/config/layouts/default-layout.json'
+import { findPath, type Point } from '@/lib/pathfinding'
 
 const H = layout.avatar.figureHeight
 const PLANE_W = layout.plane.width
@@ -110,6 +111,10 @@ export type UserFor3D = {
   status: 'Active' | 'Inactive' | 'Offline'
   IS_REGISTERED: boolean
   authorized: boolean
+  // True once this user has been confirmed as having actually left the
+  // building (last seen near an entry/exit sensor, then went stale). Avatar
+  // shrinks out over DESPAWN_FADE_RATE seconds instead of just vanishing.
+  despawning?: boolean
 }
 
 type AvatarPalette = {
@@ -243,6 +248,44 @@ const DEBUG_DIR_MIN_INTERVAL = 2.0           // seconds — earliest random head
 const DEBUG_DIR_MAX_INTERVAL = 5.0           // seconds — latest random heading change
 const DEBUG_BOUND_MARGIN = 0.5               // keep avatar this far inside the plane edge
 
+// Waypoint-following tuning ---------------------------------------------
+// When a new sensor reading places the user somewhere else, a route through
+// doors/pathways is computed once (see src/lib/pathfinding.ts) — a polyline
+// through however many waypoints it takes to go via doors instead of
+// through walls. That whole route (not each individual leg) is walked over
+// one fixed wall-clock duration: position is parametrized by arc-length
+// along the polyline, and arc-length traveled is driven by elapsed time /
+// TOTAL_TRAVEL_SECONDS, so the avatar always reaches the destination in
+// (about) this many seconds regardless of how many doors it passes through
+// or how long the route is — this is the one constant to change if travel
+// should be faster or slower.
+const TOTAL_TRAVEL_SECONDS = 2.0
+
+// Finds the point at the given arc-length distance `d` along a polyline
+// (`points`, with precomputed cumulative segment distances `cumDist`,
+// cumDist[0] === 0 and cumDist[i] = length of points[0..i]). Also returns
+// the direction of the segment currently being walked, for facing.
+function samplePolylineAtDistance(
+  points: Point[],
+  cumDist: number[],
+  d: number,
+): { x: number; z: number; dirX: number; dirZ: number } {
+  const total = cumDist[cumDist.length - 1]
+  const clamped = Math.max(0, Math.min(d, total))
+  let i = 0
+  while (i < cumDist.length - 2 && cumDist[i + 1] < clamped) i++
+  const [sx, sz] = points[i]
+  const [ex, ez] = points[i + 1] ?? points[i]
+  const segLen = cumDist[i + 1] - cumDist[i]
+  const segT = segLen > 1e-6 ? (clamped - cumDist[i]) / segLen : 1
+  return { x: sx + (ex - sx) * segT, z: sz + (ez - sz) * segT, dirX: ex - sx, dirZ: ez - sz }
+}
+
+// Despawn tuning -----------------------------------------------------------
+// Once a user is confirmed to have actually left (see Map.tsx), the avatar
+// shrinks out instead of just disappearing.
+const DESPAWN_SHRINK_RATE = 2.2              // 1/s — exponential scale-to-zero speed
+
 function wrapAngle(a: number): number {
   while (a > Math.PI) a -= Math.PI * 2
   while (a < -Math.PI) a += Math.PI * 2
@@ -293,6 +336,22 @@ export function AvatarMesh({ user, targetPosition, debugMode = false, isSelected
   // ON, rather than snapping to its PREDICTED_LOCATION.
   const debugStateRef = useRef({ x: 0, z: 0, heading: 0, nextDirChange: 0 })
   const debugInitRef = useRef(false)
+
+  // Route-following state. `lastTargetKeyRef` detects when the incoming
+  // targetPosition actually moved (a real relocation) vs. an unrelated
+  // re-render, so the route through pathfinding.ts is only (re)computed on
+  // real changes. `pathPointsRef` is [positionWhenRouteStarted, ...waypoints]
+  // with `pathCumDistRef` the cumulative arc-length at each point — together
+  // they let position be sampled directly from elapsed time (see
+  // samplePolylineAtDistance) instead of chasing a moving lerp target.
+  const lastTargetKeyRef = useRef<string | null>(null)
+  const pathPointsRef = useRef<Point[]>([])
+  const pathCumDistRef = useRef<number[]>([0])
+  const pathTotalDistRef = useRef(0)
+  const pathElapsedRef = useRef(0)
+
+  // Despawn shrink state — 1 = full size, lerps to 0 while despawning.
+  const despawnScaleRef = useRef(1)
 
   // Stable per-avatar phase offset so rings don't all pulse in unison.
   const pulsePhase = useMemo(() => {
@@ -391,16 +450,55 @@ export function AvatarMesh({ user, targetPosition, debugMode = false, isSelected
       // ===== Normal mode: lerp + turn-first state machine =================
       debugInitRef.current = false                    // reset wander on next ON
 
-      const tx = targetPosition[0]
-      const tz = targetPosition[2]
-      const dx = tx - posRef.current.x
-      const dz = tz - posRef.current.z
-      const distToTarget = Math.hypot(dx, dz)
+      // Recompute the route whenever the destination actually changes (a
+      // fresh sensor reading placed the user somewhere new). Routing through
+      // pathfinding.ts means the walk goes via doors/pathways instead of
+      // straight through walls — this matters most after a signal gap,
+      // where the avatar was frozen in place and then jumps to wherever it
+      // was last seen. The whole resulting route — however many waypoints
+      // it takes — becomes one polyline walked as a single arc-length
+      // parametrized path, so the avatar always reaches the destination in
+      // TOTAL_TRAVEL_SECONDS regardless of how many legs the route has.
+      const targetKey = `${targetPosition[0].toFixed(2)}|${targetPosition[2].toFixed(2)}`
+      if (targetKey !== lastTargetKeyRef.current) {
+        lastTargetKeyRef.current = targetKey
+        const waypoints = findPath(
+          [posRef.current.x, posRef.current.z],
+          [targetPosition[0], targetPosition[2]],
+        )
+        const points: Point[] = [[posRef.current.x, posRef.current.z], ...waypoints]
+        const cumDist: number[] = [0]
+        for (let i = 1; i < points.length; i++) {
+          cumDist.push(
+            cumDist[i - 1] +
+              Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1]),
+          )
+        }
+        pathPointsRef.current = points
+        pathCumDistRef.current = cumDist
+        pathTotalDistRef.current = cumDist[cumDist.length - 1]
+        pathElapsedRef.current = 0
+      }
 
-      // Desired yaw: face the target if it's far enough to matter; otherwise
-      // keep current heading (avoids spinning randomly when essentially stopped).
+      // Sample the route at the arc-length distance implied by elapsed
+      // walking time. Eased so it settles into the destination instead of
+      // stopping on a hard cut. `pathElapsedRef` only advances while
+      // actually translating (see below), so an in-place turn doesn't eat
+      // into the travel budget.
+      const rawProgress = Math.min(pathElapsedRef.current / TOTAL_TRAVEL_SECONDS, 1)
+      const easedProgress = 1 - (1 - rawProgress) * (1 - rawProgress)
+      const sample = samplePolylineAtDistance(
+        pathPointsRef.current,
+        pathCumDistRef.current,
+        pathTotalDistRef.current * easedProgress,
+      )
+      const distRemaining = pathTotalDistRef.current * (1 - rawProgress)
+
+      // Desired yaw: face the direction of the route segment currently
+      // being walked; otherwise keep current heading (avoids spinning
+      // randomly when essentially stopped).
       const desiredYaw =
-        distToTarget > 0.05 ? Math.atan2(dx, dz) : yawRef.current
+        distRemaining > 0.05 ? Math.atan2(sample.dirX, sample.dirZ) : yawRef.current
       const yawDiff = wrapAngle(desiredYaw - yawRef.current)
 
       // Trigger TURNING state only when the change is meaningful AND we have
@@ -409,7 +507,7 @@ export function AvatarMesh({ user, targetPosition, debugMode = false, isSelected
       if (
         !turningRef.current &&
         Math.abs(yawDiff) > TURN_THRESHOLD &&
-        distToTarget > TURN_MIN_DISTANCE &&
+        distRemaining > TURN_MIN_DISTANCE &&
         turnCooldownRef.current <= 0
       ) {
         turningRef.current = true
@@ -428,7 +526,7 @@ export function AvatarMesh({ user, targetPosition, debugMode = false, isSelected
           turnCooldownRef.current = TURN_COOLDOWN
         }
       } else {
-        if (distToTarget > 0.05) {
+        if (distRemaining > 0.05) {
           const blend = 1 - Math.exp(-TRACK_RATE * delta)
           yawRef.current = wrapAngle(yawRef.current + yawDiff * blend)
         }
@@ -438,14 +536,35 @@ export function AvatarMesh({ user, targetPosition, debugMode = false, isSelected
       groupRef.current.rotation.y = yawRef.current
 
       if (!turningRef.current) {
-        const t = 1 - Math.pow(0.001, delta)
-        posRef.current.lerp(new Vector3(tx, targetPosition[1], tz), t)
+        // Advance the walking-time budget and re-sample the route at the
+        // resulting arc-length — this is what actually moves the avatar.
+        // Elapsed only accrues here (not during an in-place turn), so
+        // TOTAL_TRAVEL_SECONDS always means "seconds of walking," regardless
+        // of frame rate or machine speed.
+        pathElapsedRef.current += delta
+        const p = Math.min(pathElapsedRef.current / TOTAL_TRAVEL_SECONDS, 1)
+        const eased = 1 - (1 - p) * (1 - p)
+        const moved = samplePolylineAtDistance(
+          pathPointsRef.current,
+          pathCumDistRef.current,
+          pathTotalDistRef.current * eased,
+        )
+        posRef.current.set(moved.x, targetPosition[1], moved.z)
         groupRef.current.position.copy(posRef.current)
       }
     }
 
     // Keep the camera ref in sync with the avatar's actual rendered position.
     if (followPosRef) followPosRef.current = posRef.current
+
+    // ===== Despawn shrink ===============================================
+    // Confirmed-left users (see Map.tsx) shrink out instead of popping away.
+    // The parent keeps the user mounted for a bit longer than this so the
+    // shrink actually finishes before removal.
+    const wantScale = user.despawning ? 0 : 1
+    despawnScaleRef.current +=
+      (wantScale - despawnScaleRef.current) * (1 - Math.exp(-DESPAWN_SHRINK_RATE * delta))
+    groupRef.current.scale.setScalar(despawnScaleRef.current)
 
     // ===== Walk cycle (common to both modes) ===========================
     const speed =

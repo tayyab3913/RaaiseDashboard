@@ -3,8 +3,11 @@
 import { useState, useEffect } from 'react'
 import BlockMap from '@/components/Map'
 import SensorList from '@/components/SensorList'
-import { RefreshCw, Bug, Menu, X } from 'lucide-react'
+import { RefreshCw, Bug, Menu, X, Route } from 'lucide-react'
 import DashboardMessages from '@/components/MessageList'
+import layout from '@/config/layouts/default-layout.json'
+
+const ALL_LOCATIONS = Object.keys(layout.locations)
 
 type Sensor = {
   SENSORID: string
@@ -44,6 +47,19 @@ export default function DashboardPage() {
   // speed instead of jumping between distant rooms. The actual wander logic
   // lives in Avatar.tsx so motion is per-frame and per-avatar.
   const [debugMode, setDebugMode] = useState<boolean>(false)
+  // Path Test mode: drives a single synthetic avatar through manual
+  // controls (jump to a location, lose signal, simulate leaving through an
+  // exit sensor) so the pathfinding/freeze/despawn behavior can be watched
+  // end-to-end without needing to be on-site to trigger real sensor events.
+  const [pathTestMode, setPathTestMode] = useState<boolean>(false)
+  const [pathTestUser, setPathTestUser] = useState<User>(() => ({
+    USERID: 'PATH-TEST',
+    TIMESTAMP: new Date().toISOString(),
+    PREDICTED_LOCATION: ALL_LOCATIONS[0] ?? 'A01',
+    IS_REGISTERED: true,
+    ACCESS_LEVEL: '9',
+  }))
+  const [pathTestSignalLost, setPathTestSignalLost] = useState<boolean>(false)
   // Sidebar visibility — default open. The hamburger in the top-left of the
   // header toggles it; when closed the map area expands to fill the full
   // available width.
@@ -90,14 +106,14 @@ export default function DashboardPage() {
   }
 
   useEffect(() => {
-    // In debug mode the API fetch is paused so freshly fetched users don't
-    // wipe the wander state every fetchInterval. We still want any users
-    // already loaded to keep wandering — Avatar.tsx handles that itself.
-    if (debugMode) return
+    // In debug mode (and Path Test mode) the API fetch is paused so freshly
+    // fetched users don't stomp over the synthetic/wandering state every
+    // fetchInterval.
+    if (debugMode || pathTestMode) return
     fetchData() // Fetch data on component mount
     const interval = setInterval(fetchData, fetchInterval) // Fetch data every 5 seconds
     return () => clearInterval(interval) // Cleanup interval on component unmount
-  }, [fetchInterval, debugMode])
+  }, [fetchInterval, debugMode, pathTestMode])
 
   // Keep timestamps fresh while in debug mode. Otherwise the BlockMap status
   // calc slides debug avatars to Inactive at 60 s and Offline at 120 s, which
@@ -115,6 +131,19 @@ export default function DashboardPage() {
     const id = setInterval(tick, 5000)
     return () => clearInterval(id)
   }, [debugMode])
+
+  // Keep the Path Test avatar's timestamp fresh ("signal live") until the
+  // user explicitly loses signal — mirrors the real "sensor keeps pinging"
+  // case. Once lost, we stop refreshing and let BlockMap's own status aging
+  // (with fastTiming compressed thresholds) carry it through
+  // Active → Inactive → Offline → (despawn, if at an exit) on its own.
+  useEffect(() => {
+    if (!pathTestMode || pathTestSignalLost) return
+    const id = setInterval(() => {
+      setPathTestUser((u) => ({ ...u, TIMESTAMP: new Date().toISOString() }))
+    }, 2000)
+    return () => clearInterval(id)
+  }, [pathTestMode, pathTestSignalLost])
 
   // Inject mock notifications when debug mode is active so the notifications
   // panel UI can be previewed without live data.
@@ -139,6 +168,36 @@ export default function DashboardPage() {
   // Add this function to handle interval change
   const handleIntervalChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     setFetchInterval(Number(event.target.value) * 1000) // Convert seconds to milliseconds
+  }
+
+  // Locations served by a sensor flagged as a building entry/exit — the
+  // same flag Map.tsx uses to decide whether a stale user should despawn.
+  const exitLocations = originalSensors
+    .filter((s) => (s.ENTRY_AND_EXIT || '').toUpperCase() === 'YES')
+    .map((s) => s.LOCATION)
+
+  const togglePathTestMode = () => {
+    setPathTestMode((v) => {
+      const next = !v
+      if (next) setDebugMode(false)
+      setPathTestSignalLost(false)
+      return next
+    })
+  }
+
+  const handlePathTestJump = (location: string) => {
+    setPathTestUser((u) => ({ ...u, PREDICTED_LOCATION: location, TIMESTAMP: new Date().toISOString() }))
+    setPathTestSignalLost(false)
+  }
+
+  const handlePathTestLoseSignal = () => {
+    setPathTestSignalLost(true)
+  }
+
+  const handlePathTestSimulateExit = () => {
+    const exitCode = exitLocations[0] ?? ALL_LOCATIONS[0] ?? 'A01'
+    setPathTestUser((u) => ({ ...u, PREDICTED_LOCATION: exitCode, TIMESTAMP: new Date().toISOString() }))
+    setPathTestSignalLost(true)
   }
 
   return (
@@ -190,7 +249,7 @@ export default function DashboardPage() {
             <button
               type="button"
               onClick={fetchData}
-              disabled={isLoading || debugMode}
+              disabled={isLoading || debugMode || pathTestMode}
               className="inline-flex min-w-[7.5rem] items-center justify-center gap-2 rounded-lg bg-violet-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-45"
             >
               <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
@@ -199,7 +258,11 @@ export default function DashboardPage() {
 
             <button
               type="button"
-              onClick={() => setDebugMode((d) => !d)}
+              onClick={() => setDebugMode((d) => {
+                const next = !d
+                if (next) setPathTestMode(false)
+                return next
+              })}
               title="Avatars wander inside the scene to test movement"
               className={`inline-flex min-w-[7.5rem] items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-violet-500/40 ${
                 debugMode
@@ -209,6 +272,20 @@ export default function DashboardPage() {
             >
               <Bug className="h-4 w-4" />
               {debugMode ? 'Debug on' : 'Debug off'}
+            </button>
+
+            <button
+              type="button"
+              onClick={togglePathTestMode}
+              title="Manually drive one avatar to test pathfinding, signal loss, and exit despawn"
+              className={`inline-flex min-w-[7.5rem] items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-violet-500/40 ${
+                pathTestMode
+                  ? 'border border-amber-300 bg-amber-100 text-amber-900 hover:bg-amber-50'
+                  : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              <Route className="h-4 w-4" />
+              {pathTestMode ? 'Path test on' : 'Path test off'}
             </button>
 
             <button
@@ -243,10 +320,21 @@ export default function DashboardPage() {
           <div className="flex min-h-0 flex-1 flex-col">
             <BlockMap
               sensors={originalSensors}
-              users={users}
+              users={pathTestMode ? [pathTestUser] : users}
               showSensors={showSensors}
               activeAreas={activeAreas}
               debugMode={debugMode}
+              fastTiming={pathTestMode}
+              pathTest={pathTestMode ? {
+                locations: ALL_LOCATIONS,
+                exitLocations,
+                currentLocation: pathTestUser.PREDICTED_LOCATION,
+                signalLost: pathTestSignalLost,
+                onJump: handlePathTestJump,
+                onLoseSignal: handlePathTestLoseSignal,
+                onSimulateExit: handlePathTestSimulateExit,
+                onClose: () => setPathTestMode(false),
+              } : undefined}
             />
           </div>
           <DashboardMessages messages={messages} open={notificationsOpen} onToggle={() => setNotificationsOpen((o) => !o)} />
