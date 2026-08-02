@@ -21,32 +21,43 @@ const furnitureConfig = (layout as Record<string, unknown>).roomFurniture as {
     // Meeting rooms get one chair on EACH long edge (facing each other
     // across the table) instead of the usual single chair. Defaults to 1.
     chairCount?: number
+    // How many chairs line up along each occupied long edge. Defaults to 1
+    // (centred, per rule 1). >1 spaces them evenly along the table's length.
+    chairsPerSide?: number
+    // Multiplies the table's long dimension after the usual room-fit sizing
+    // — for a bigger meeting table than the standard "medium" one. Defaults
+    // to 1. Still clamped to the room's available space as a safety net.
+    tableLongScale?: number
   }>
 } | undefined
+
+// Overall furniture scale — applied to every size below (not to wall
+// clearance/fit tolerances, which stay independent of how big the pieces are).
+const FURNITURE_SCALE = 0.7
 
 // Table sizing — a consistent "medium" desk footprint that only shrinks
 // (never grows) to stay clear of the walls in a smaller room, so every room
 // gets the same reasonably-sized table rather than one scaled to fill it.
-const TABLE_LONG = 1.15
-const TABLE_SHORT = 0.68
+const TABLE_LONG = 1.15 * FURNITURE_SCALE
+const TABLE_SHORT = 0.68 * FURNITURE_SCALE
 const WALL_MARGIN = 0.4          // clearance kept from every wall
 const MIN_TABLE_SCALE = 0.4
-const TABLE_HEIGHT = 0.32
-const TOP_THICKNESS = 0.018
-const TOP_INSET = 0.04
-const LEG_SIZE = 0.045
-const LEG_INSET = 0.06
+const TABLE_HEIGHT = 0.32 * FURNITURE_SCALE
+const TOP_THICKNESS = 0.018 * FURNITURE_SCALE
+const TOP_INSET = 0.04 * FURNITURE_SCALE
+const LEG_SIZE = 0.045 * FURNITURE_SCALE
+const LEG_INSET = 0.06 * FURNITURE_SCALE
 
 // Chair sizing/placement
-const CHAIR_SEAT_SIZE = 0.34
-const CHAIR_SEAT_HEIGHT = 0.2
-const CHAIR_BACK_HEIGHT = 0.32
-const CHAIR_BACK_THICKNESS = 0.038
-const CHAIR_POST_RADIUS = 0.036
-const CHAIR_BASE_RADIUS = 0.15
-const CHAIR_BASE_HEIGHT = 0.026
-const CHAIR_GAP_FROM_TABLE = 0.14   // clearance between table edge and chair
-const CHAIR_FOOTPRINT_RADIUS = 0.19 // half the seat's diagonal, roughly
+const CHAIR_SEAT_SIZE = 0.34 * FURNITURE_SCALE
+const CHAIR_SEAT_HEIGHT = 0.2 * FURNITURE_SCALE
+const CHAIR_BACK_HEIGHT = 0.32 * FURNITURE_SCALE
+const CHAIR_BACK_THICKNESS = 0.038 * FURNITURE_SCALE
+const CHAIR_POST_RADIUS = 0.036 * FURNITURE_SCALE
+const CHAIR_BASE_RADIUS = 0.15 * FURNITURE_SCALE
+const CHAIR_BASE_HEIGHT = 0.026 * FURNITURE_SCALE
+const CHAIR_GAP_FROM_TABLE = 0.14 * FURNITURE_SCALE  // clearance between table edge and chair
+const CHAIR_FOOTPRINT_RADIUS = 0.19 * FURNITURE_SCALE // half the seat's diagonal, roughly
 
 type TableProps = {
   posX: number
@@ -153,7 +164,7 @@ export function RoomFurniture() {
         Math.max(MIN_TABLE_SCALE, availableLong / TABLE_LONG),
         Math.max(MIN_TABLE_SCALE, availableShort / TABLE_SHORT),
       )
-      const tableLong = TABLE_LONG * scale
+      const tableLong = Math.min(TABLE_LONG * scale * (room.tableLongScale ?? 1), availableLong)
       const tableShort = TABLE_SHORT * scale
       const tableW = longAxisIsX ? tableLong : tableShort
       const tableD = longAxisIsX ? tableShort : tableLong
@@ -178,7 +189,7 @@ export function RoomFurniture() {
       // each facing back across the table toward the centre, which means
       // they end up facing each other. The door doesn't decide anything
       // here since both sides are already occupied.
-      const offsets: [number, number][] =
+      const sideOffsets: [number, number][] =
         room.chairCount === 2
           ? candidates
           : [
@@ -194,17 +205,33 @@ export function RoomFurniture() {
               })(),
             ]
 
+      // When more than one chair lines up along a side, space them evenly
+      // along the table's LENGTH (not its width) within a comfortable span
+      // well short of the ends. A single chair per side still sits centred,
+      // per rule 1.
+      const perSide = Math.max(1, room.chairsPerSide ?? 1)
+      const longSpan = tableLong * 0.6
+      const longOffsets =
+        perSide === 1 ? [0] : Array.from({ length: perSide }, (_, i) => (i / (perSide - 1) - 0.5) * longSpan)
+
       // Face back across the table toward its centre — coincides with
       // facing the door in the single-chair case whenever the farther side
       // is also the opposite side; in the meeting-room case this is what
-      // makes the two chairs face each other.
-      const chairs = offsets.map(([offsetX, offsetZ]) => ({
-        posX: centerX + offsetX,
-        posZ: centerZ + offsetZ,
-        yaw: Math.atan2(-offsetX, -offsetZ),
-        color: chairColor,
-        seatColor: chairSeatColor,
-      }))
+      // makes opposing chairs face each other. Facing direction only
+      // depends on which side a chair is on, not its position along it.
+      const chairs = sideOffsets.flatMap(([sideX, sideZ]) =>
+        longOffsets.map((along) => {
+          const offsetX = longAxisIsX ? along : sideX
+          const offsetZ = longAxisIsX ? sideZ : along
+          return {
+            posX: centerX + offsetX,
+            posZ: centerZ + offsetZ,
+            yaw: Math.atan2(-sideX, -sideZ),
+            color: chairColor,
+            seatColor: chairSeatColor,
+          }
+        }),
+      )
 
       return {
         id: room.id,
