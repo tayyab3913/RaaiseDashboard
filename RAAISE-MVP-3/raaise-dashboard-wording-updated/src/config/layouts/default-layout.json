@@ -1750,8 +1750,7 @@
           61.575
         ],
         "cornerTable": {
-          "corner": "SE",
-          "dropVerticalCornerChair": true
+          "corner": "SE"
         },
         "noCenterTable": true
       }

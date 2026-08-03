@@ -69,25 +69,19 @@ const CHAIR_BASE_HEIGHT = 0.026 * FURNITURE_SCALE
 const CHAIR_GAP_FROM_TABLE = 0.14 * FURNITURE_SCALE  // clearance between table edge and chair
 const CHAIR_FOOTPRINT_RADIUS = 0.19 * FURNITURE_SCALE // half the seat's diagonal, roughly
 
-// Corner ("L-shaped") table run — two straight segments, each flush against
-// one of the two walls meeting at a corner, sized to use most of each
-// wall's length (clipped only by CORNER_END_MARGIN at the far end and the
-// gap at the corner itself). Chairs line the room-facing side of each
-// segment, spaced generously rather than packed tight.
+// Corner ("L-shaped") table run — two straight segments, one along each of
+// the two walls meeting at a corner. Chairs sit BETWEEN the table and the
+// wall (a cushion off the wall itself), facing inward toward the table —
+// like banquette seating — rather than the table hugging the wall with
+// chairs behind it. A gap at each segment's far end (away from the L's
+// corner) leaves room for someone to walk into that wall-side lane and
+// along it to reach a chair.
 const CORNER_TABLE_DEPTH = TABLE_SHORT   // how far each segment sticks out from its wall
-const CORNER_WALL_GAP = 0.05
 const CORNER_END_MARGIN = 0.3            // clearance from the far (perpendicular) wall
 const CORNER_CHAIR_SPACING = 0.9         // target centre-to-centre spacing along a segment
-// Cushion so chairs don't crowd either end of a segment. The far end (away
-// from the L's corner, i.e. toward the room's OTHER two corners) gets a
-// visibly generous gap so the row reads as centred/balanced rather than
-// pushed flush into the corner.
-const CORNER_CHAIR_END_MARGIN = 0.45
-// Extra clearance from the corner-side end specifically — bigger again,
-// because the OTHER segment's nearest chair sits just around that corner
-// too; without this the two rows' end chairs would land almost on top of
-// each other.
-const CORNER_CHAIR_CORNER_MARGIN = 0.65
+const CORNER_CHAIR_END_MARGIN = 0.3      // clearance from each segment's far (non-corner) end
+const CORNER_CHAIR_CORNER_MARGIN = 0.3   // clearance from the corner-side end
+const CHAIR_WALL_GAP = 0.15              // clearance between a chair's edge and the wall behind it
 
 type TableProps = {
   posX: number
@@ -192,17 +186,24 @@ function buildCornerTable(
   const intoRoomX = isEast ? -1 : 1
   const intoRoomZ = isSouth ? -1 : 1
 
-  // The corner point both segments' CENTRELINES would meet at, inset from
-  // both walls.
-  const segX = (isEast ? bounds.x1 : bounds.x0) + intoRoomX * (CORNER_TABLE_DEPTH / 2 + CORNER_WALL_GAP)
-  const segZ = (isSouth ? bounds.z1 : bounds.z0) + intoRoomZ * (CORNER_TABLE_DEPTH / 2 + CORNER_WALL_GAP)
+  // Chairs sit close to their wall (cushioned off it by CHAIR_WALL_GAP),
+  // and each table sits further into the room by the same table-chair gap
+  // used everywhere else (CHAIR_GAP_FROM_TABLE) — the two are transposed
+  // from a "table-hugs-wall" layout, not independently tuned.
+  const chairWallOffset = CHAIR_FOOTPRINT_RADIUS + CHAIR_WALL_GAP
+  const chairToTableGap = CORNER_TABLE_DEPTH / 2 + CHAIR_GAP_FROM_TABLE + CHAIR_FOOTPRINT_RADIUS
+  const tableWallOffset = chairWallOffset + chairToTableGap
 
-  // The vertical (E/W-wall) segment is the one that actually fills the
-  // corner square — it runs all the way to the wall itself (minus just the
-  // gap), not just up to the horizontal segment's centreline. The
-  // horizontal segment then stops at the vertical one's near face, so the
-  // two butt together with the corner covered exactly once and no gap.
-  const vCornerZ = (isSouth ? bounds.z1 : bounds.z0) + intoRoomZ * CORNER_WALL_GAP
+  // Each table's own perpendicular position (segX for the E/W-wall segment,
+  // segZ for the N/S-wall one).
+  const segX = (isEast ? bounds.x1 : bounds.x0) + intoRoomX * tableWallOffset
+  const segZ = (isSouth ? bounds.z1 : bounds.z0) + intoRoomZ * tableWallOffset
+
+  // The vertical (E/W-wall) segment extends to meet the horizontal one's
+  // near face — the two butt together with the corner between them covered
+  // exactly once and no gap. (Neither reaches the actual wall corner
+  // anymore, since both are pulled inward to make room for the chairs.)
+  const vCornerZ = segZ + intoRoomZ * (CORNER_TABLE_DEPTH / 2)
   const hCornerX = segX + intoRoomX * (CORNER_TABLE_DEPTH / 2)
 
   const vFarZ = isSouth ? bounds.z0 + CORNER_END_MARGIN : bounds.z1 - CORNER_END_MARGIN
@@ -228,16 +229,13 @@ function buildCornerTable(
     return Array.from({ length: count }, (_, i) => lo + (usable * i) / (count - 1))
   }
 
-  const chairDist = CORNER_TABLE_DEPTH / 2 + CHAIR_GAP_FROM_TABLE + CHAIR_FOOTPRINT_RADIUS
-
-  // Vertical segment's chairs sit further into the room (continuing along
-  // intoRoomX past the table) and face back toward the wall. The end nearer
-  // the corner gets extra clearance (CORNER_CHAIR_CORNER_MARGIN, bigger than
-  // the plain end margin) so it can't collide with the horizontal segment's
-  // own nearest chair, which sits in roughly the same spot from the other
-  // direction.
-  const vChairX = segX + intoRoomX * chairDist
-  const vYaw = Math.atan2(-intoRoomX, 0)
+  // Vertical segment's chairs hug the wall itself (not the table) and face
+  // INTO the room, toward the table. They still run alongside the table's
+  // own footprint (vFarZ..vCornerZ), with the same far/corner-end cushions
+  // as before so the row reads centred and the two rows' nearest chairs
+  // don't crowd each other at the join.
+  const vChairX = (isEast ? bounds.x1 : bounds.x0) + intoRoomX * chairWallOffset
+  const vYaw = Math.atan2(intoRoomX, 0)
   const vDir = Math.sign(vCornerZ - vFarZ) || 1
   const [vLo, vHi] = [
     vFarZ + vDir * CORNER_CHAIR_END_MARGIN,
@@ -259,8 +257,8 @@ function buildCornerTable(
   }
 
   // Horizontal segment's chairs, same idea along X instead.
-  const hChairZ = segZ + intoRoomZ * chairDist
-  const hYaw = Math.atan2(0, -intoRoomZ)
+  const hChairZ = (isSouth ? bounds.z1 : bounds.z0) + intoRoomZ * chairWallOffset
+  const hYaw = Math.atan2(0, intoRoomZ)
   const hDir = Math.sign(hCornerX - hFarX) || 1
   const [hLo, hHi] = [
     hFarX + hDir * CORNER_CHAIR_END_MARGIN,
