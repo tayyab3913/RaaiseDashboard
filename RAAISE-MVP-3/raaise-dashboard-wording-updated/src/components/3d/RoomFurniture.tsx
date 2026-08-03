@@ -199,16 +199,22 @@ function buildCornerTable(
   const segX = (isEast ? bounds.x1 : bounds.x0) + intoRoomX * tableWallOffset
   const segZ = (isSouth ? bounds.z1 : bounds.z0) + intoRoomZ * tableWallOffset
 
-  // The vertical (E/W-wall) segment extends to meet the horizontal one's
-  // near face — the two butt together with the corner between them covered
-  // exactly once and no gap. (Neither reaches the actual wall corner
-  // anymore, since both are pulled inward to make room for the chairs.)
-  const vCornerZ = segZ + intoRoomZ * (CORNER_TABLE_DEPTH / 2)
+  // `vJoinZ` is where the two segments conceptually meet (used to keep the
+  // chair rows from crowding each other near the join — unaffected by how
+  // far the table itself reaches). The vertical (E/W-wall) TABLE actually
+  // extends past that, all the way to the horizontal table's FAR face
+  // (`vCornerFillZ`) — otherwise the square between the two tables' near
+  // faces is left uncovered, which reads as an empty gap at the join. The
+  // horizontal table simply butts against the vertical one's near face
+  // (`hCornerX`, unchanged), so between the two the corner is covered
+  // exactly once with no gap and no overlap.
+  const vJoinZ = segZ + intoRoomZ * (CORNER_TABLE_DEPTH / 2)
+  const vCornerFillZ = segZ - intoRoomZ * (CORNER_TABLE_DEPTH / 2)
   const hCornerX = segX + intoRoomX * (CORNER_TABLE_DEPTH / 2)
 
   const vFarZ = isSouth ? bounds.z0 + CORNER_END_MARGIN : bounds.z1 - CORNER_END_MARGIN
-  const vLen = Math.abs(vCornerZ - vFarZ)
-  const vCenterZ = (vCornerZ + vFarZ) / 2
+  const vLen = Math.abs(vCornerFillZ - vFarZ)
+  const vCenterZ = (vCornerFillZ + vFarZ) / 2
 
   const hFarX = isEast ? bounds.x0 + CORNER_END_MARGIN : bounds.x1 - CORNER_END_MARGIN
   const hLen = Math.abs(hCornerX - hFarX)
@@ -231,15 +237,17 @@ function buildCornerTable(
 
   // Vertical segment's chairs hug the wall itself (not the table) and face
   // INTO the room, toward the table. They still run alongside the table's
-  // own footprint (vFarZ..vCornerZ), with the same far/corner-end cushions
-  // as before so the row reads centred and the two rows' nearest chairs
-  // don't crowd each other at the join.
+  // own footprint (vFarZ..vJoinZ), with the same far/corner-end cushions as
+  // before so the row reads centred and the two rows' nearest chairs don't
+  // crowd each other at the join — measured from vJoinZ, not the table's
+  // extended fill edge, so the extra table length doesn't shove the chair
+  // row along with it.
   const vChairX = (isEast ? bounds.x1 : bounds.x0) + intoRoomX * chairWallOffset
   const vYaw = Math.atan2(intoRoomX, 0)
-  const vDir = Math.sign(vCornerZ - vFarZ) || 1
+  const vDir = Math.sign(vJoinZ - vFarZ) || 1
   const [vLo, vHi] = [
     vFarZ + vDir * CORNER_CHAIR_END_MARGIN,
-    vCornerZ - vDir * CORNER_CHAIR_CORNER_MARGIN,
+    vJoinZ - vDir * CORNER_CHAIR_CORNER_MARGIN,
   ].sort((a, b) => a - b)
   const vChairs: ChairProps[] = spacedBetween(vLo, vHi).map((z) => ({
     posX: vChairX,
@@ -250,7 +258,7 @@ function buildCornerTable(
   }))
   if (dropVerticalCornerChair && vChairs.length > 0) {
     const nearestIdx = vChairs.reduce(
-      (best, c, i) => (Math.abs(c.posZ - vCornerZ) < Math.abs(vChairs[best].posZ - vCornerZ) ? i : best),
+      (best, c, i) => (Math.abs(c.posZ - vJoinZ) < Math.abs(vChairs[best].posZ - vJoinZ) ? i : best),
       0,
     )
     vChairs.splice(nearestIdx, 1)
