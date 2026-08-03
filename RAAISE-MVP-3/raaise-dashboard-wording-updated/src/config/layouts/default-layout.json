@@ -1749,9 +1749,11 @@
           87.28,
           61.575
         ],
-        "chairCount": 2,
-        "tableLongScale": 2.5,
-        "chairsPerSide": 3
+        "cornerTable": {
+          "corner": "SE",
+          "dropVerticalCornerChair": true
+        },
+        "noCenterTable": true
       }
     ]
   }
